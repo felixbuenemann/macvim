@@ -1555,6 +1555,7 @@ searchc(cap, t_cmd)
     int			col;
     char_u		*p;
     int			len;
+    int			stop = TRUE;
 #ifdef FEAT_MBYTE
     static char_u	bytes[MB_MAXBYTES];
     static int		bytelen = 1;	/* >1 for multi-byte char */
@@ -1589,6 +1590,12 @@ searchc(cap, t_cmd)
 	t_cmd = last_t_cmd;
 	c = lastc;
 	/* For multi-byte re-use last bytes[] and bytelen. */
+
+	/* Force a move of at least one char, so ";" and "," will move the
+	 * cursor, even if the cursor is right in front of char we are looking
+	 * at. */
+	if (vim_strchr(p_cpo, CPO_SCOLON) == NULL && count == 1 && t_cmd)
+	    stop = FALSE;
     }
 
     if (dir == BACKWARD)
@@ -1621,14 +1628,15 @@ searchc(cap, t_cmd)
 		}
 		if (bytelen == 1)
 		{
-		    if (p[col] == c)
+		    if (p[col] == c && stop)
 			break;
 		}
 		else
 		{
-		    if (vim_memcmp(p + col, bytes, bytelen) == 0)
+		    if (vim_memcmp(p + col, bytes, bytelen) == 0 && stop)
 			break;
 		}
+		stop = TRUE;
 	    }
 	}
 	else
@@ -1638,8 +1646,9 @@ searchc(cap, t_cmd)
 	    {
 		if ((col += dir) < 0 || col >= len)
 		    return FAIL;
-		if (p[col] == c)
+		if (p[col] == c && stop)
 		    break;
+		stop = TRUE;
 	    }
 	}
     }
@@ -2402,24 +2411,24 @@ check_linecomment(line)
     {
 	if (vim_strchr(p, ';') != NULL) /* there may be comments */
 	{
-	    int instr = FALSE;	/* inside of string */
+	    int in_str = FALSE;	/* inside of string */
 
 	    p = line;		/* scan from start */
 	    while ((p = vim_strpbrk(p, (char_u *)"\";")) != NULL)
 	    {
 		if (*p == '"')
 		{
-		    if (instr)
+		    if (in_str)
 		    {
 			if (*(p - 1) != '\\') /* skip escaped quote */
-			    instr = FALSE;
+			    in_str = FALSE;
 		    }
 		    else if (p == line || ((p - line) >= 2
 				      /* skip #\" form */
 				      && *(p - 1) != '\\' && *(p - 2) != '#'))
-			instr = TRUE;
+			in_str = TRUE;
 		}
-		else if (!instr && ((p - line) < 2
+		else if (!in_str && ((p - line) < 2
 				    || (*(p - 1) != '\\' && *(p - 2) != '#')))
 		    break;	/* found! */
 		++p;
@@ -2501,8 +2510,8 @@ showmatch(c)
 	    save_siso = p_siso;
 	    /* Handle "$" in 'cpo': If the ')' is typed on top of the "$",
 	     * stop displaying the "$". */
-	    if (dollar_vcol > 0 && dollar_vcol == curwin->w_virtcol)
-		dollar_vcol = 0;
+	    if (dollar_vcol >= 0 && dollar_vcol == curwin->w_virtcol)
+		dollar_vcol = -1;
 	    ++curwin->w_virtcol;	/* do display ')' just before "$" */
 	    update_screen(VALID);	/* show the new char first */
 
@@ -3918,7 +3927,7 @@ again:
 	curwin->w_cursor = old_pos;
 	goto theend;
     }
-    spat = alloc(len + 29);
+    spat = alloc(len + 31);
     epat = alloc(len + 9);
     if (spat == NULL || epat == NULL)
     {
@@ -3927,7 +3936,7 @@ again:
 	curwin->w_cursor = old_pos;
 	goto theend;
     }
-    sprintf((char *)spat, "<%.*s\\%%(\\_[^>]\\{-}[^/]>\\|>\\)\\c", len, p);
+    sprintf((char *)spat, "<%.*s\\>\\%%(\\s\\_[^>]\\{-}[^/]>\\|>\\)\\c", len, p);
     sprintf((char *)epat, "</%.*s>\\c", len, p);
 
     r = do_searchpair(spat, (char_u *)"", epat, FORWARD, (char_u *)"",
@@ -5145,6 +5154,12 @@ exit_matched:
 		goto search_line;
 	}
 	line_breakcheck();
+#ifdef FEAT_GUI_MACVIM
+	/* This loop could potentially take a long time, so make sure MacVim
+	 * gets a chance to flush its output. */
+	if (gui.in_use)
+	    gui_macvim_flush();
+#endif
 #ifdef FEAT_INS_EXPAND
 	if (action == ACTION_EXPAND)
 	    ins_compl_check_keys(30);

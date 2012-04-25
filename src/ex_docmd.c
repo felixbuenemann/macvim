@@ -61,6 +61,7 @@ static char_u	*do_one_cmd __ARGS((char_u **, int, struct condstack *, char_u *(*
 static char_u	*do_one_cmd __ARGS((char_u **, int, char_u *(*fgetline)(int, void *, int), void *cookie));
 static int	if_level = 0;		/* depth in :if */
 #endif
+static void	append_command __ARGS((char_u *cmd));
 static char_u	*find_command __ARGS((exarg_T *eap, int *full));
 
 static void	ex_abbreviate __ARGS((exarg_T *eap));
@@ -372,11 +373,9 @@ static void	ex_tag_cmd __ARGS((exarg_T *eap, char_u *name));
 # define ex_endif		ex_ni
 # define ex_else		ex_ni
 # define ex_while		ex_ni
-# define ex_for			ex_ni
 # define ex_continue		ex_ni
 # define ex_break		ex_ni
 # define ex_endwhile		ex_ni
-# define ex_endfor		ex_ni
 # define ex_throw		ex_ni
 # define ex_try			ex_ni
 # define ex_catch		ex_ni
@@ -2143,10 +2142,7 @@ do_one_cmd(cmdlinep, sourcing,
 	{
 	    STRCPY(IObuff, _("E492: Not an editor command"));
 	    if (!sourcing)
-	    {
-		STRCAT(IObuff, ": ");
-		STRNCAT(IObuff, *cmdlinep, 40);
-	    }
+		append_command(*cmdlinep);
 	    errormsg = IObuff;
 	}
 	goto doend;
@@ -2602,6 +2598,7 @@ do_one_cmd(cmdlinep, sourcing,
 	    case CMD_unlet:
 	    case CMD_verbose:
 	    case CMD_vertical:
+	    case CMD_wincmd:
 				break;
 
 	    default:		goto doend;
@@ -2714,8 +2711,7 @@ doend:
 		STRCPY(IObuff, errormsg);
 		errormsg = IObuff;
 	    }
-	    STRCAT(errormsg, ": ");
-	    STRNCAT(errormsg, *cmdlinep, IOSIZE - STRLEN(IObuff) - 1);
+	    append_command(*cmdlinep);
 	}
 	emsg(errormsg);
     }
@@ -2800,6 +2796,42 @@ checkforcmd(pp, cmd, len)
 	return TRUE;
     }
     return FALSE;
+}
+
+/*
+ * Append "cmd" to the error message in IObuff.
+ * Takes care of limiting the length and handling 0xa0, which would be
+ * invisible otherwise.
+ */
+    static void
+append_command(cmd)
+    char_u *cmd;
+{
+    char_u *s = cmd;
+    char_u *d;
+
+    STRCAT(IObuff, ": ");
+    d = IObuff + STRLEN(IObuff);
+    while (*s != NUL && d - IObuff < IOSIZE - 7)
+    {
+	if (
+#ifdef FEAT_MBYTE
+		enc_utf8 ? (s[0] == 0xc2 && s[1] == 0xa0) :
+#endif
+		*s == 0xa0)
+	{
+	    s +=
+#ifdef FEAT_MBYTE
+		enc_utf8 ? 2 :
+#endif
+		1;
+	    STRCPY(d, "<a0>");
+	    d += 4;
+	}
+	else
+	    MB_COPY_CHAR(s, d);
+    }
+    *d = NUL;
 }
 
 /*
@@ -4826,12 +4858,10 @@ getargopt(eap)
 #ifdef FEAT_MBYTE
     else if (STRNCMP(arg, "enc", 3) == 0)
     {
-	arg += 3;
-	pp = &eap->force_enc;
-    }
-    else if (STRNCMP(arg, "encoding", 8) == 0)
-    {
-	arg += 8;
+	if (STRNCMP(arg, "encoding", 8) == 0)
+	    arg += 8;
+	else
+	    arg += 3;
 	pp = &eap->force_enc;
     }
     else if (STRNCMP(arg, "bad", 3) == 0)
@@ -4943,7 +4973,7 @@ ex_abclear(eap)
     map_clear(eap->cmd, eap->arg, TRUE, TRUE);
 }
 
-#ifdef FEAT_AUTOCMD
+#if defined(FEAT_AUTOCMD) || defined(PROTO)
     static void
 ex_autocmd(eap)
     exarg_T	*eap;
@@ -4970,8 +5000,12 @@ ex_autocmd(eap)
 ex_doautocmd(eap)
     exarg_T	*eap;
 {
-    (void)do_doautocmd(eap->arg, TRUE);
-    do_modelines(0);
+    char_u	*arg = eap->arg;
+    int		call_do_modelines = check_nomodeline(&arg);
+
+    (void)do_doautocmd(arg, TRUE);
+    if (call_do_modelines)  /* Only when there is no <nomodeline>. */
+	do_modelines(0);
 }
 #endif
 
@@ -5314,7 +5348,9 @@ static struct
 {
     {EXPAND_AUGROUP, "augroup"},
     {EXPAND_BUFFERS, "buffer"},
+    {EXPAND_COLORS, "color"},
     {EXPAND_COMMANDS, "command"},
+    {EXPAND_COMPILER, "compiler"},
 #if defined(FEAT_CSCOPE)
     {EXPAND_CSCOPE, "cscope"},
 #endif
@@ -5327,10 +5363,15 @@ static struct
     {EXPAND_EVENTS, "event"},
     {EXPAND_EXPRESSION, "expression"},
     {EXPAND_FILES, "file"},
+    {EXPAND_FILES_IN_PATH, "file_in_path"},
     {EXPAND_FILETYPE, "filetype"},
     {EXPAND_FUNCTIONS, "function"},
     {EXPAND_HELP, "help"},
     {EXPAND_HIGHLIGHT, "highlight"},
+#if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
+        && (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+    {EXPAND_LOCALES, "locale"},
+#endif
     {EXPAND_MAPPINGS, "mapping"},
     {EXPAND_MENUS, "menu"},
     {EXPAND_OWNSYNTAX, "syntax"},
@@ -5948,7 +5989,14 @@ uc_check_code(code, len, buf, cmd, eap, split_buf, split_len)
 	    result = STRLEN(eap->arg) + 2;
 	    for (p = eap->arg; *p; ++p)
 	    {
-		if (*p == '\\' || *p == '"')
+#ifdef  FEAT_MBYTE
+		if (enc_dbcs != 0 && (*mb_ptr2len)(p) == 2)
+		    /* DBCS can contain \ in a trail byte, skip the
+		     * double-byte character. */
+		    ++p;
+		else
+#endif
+		     if (*p == '\\' || *p == '"')
 		    ++result;
 	    }
 
@@ -5957,7 +6005,14 @@ uc_check_code(code, len, buf, cmd, eap, split_buf, split_len)
 		*buf++ = '"';
 		for (p = eap->arg; *p; ++p)
 		{
-		    if (*p == '\\' || *p == '"')
+#ifdef  FEAT_MBYTE
+		    if (enc_dbcs != 0 && (*mb_ptr2len)(p) == 2)
+			/* DBCS can contain \ in a trail byte, copy the
+			 * double-byte character to avoid escaping. */
+			*buf++ = *p++;
+		    else
+#endif
+			 if (*p == '\\' || *p == '"')
 			*buf++ = '\\';
 		    *buf++ = *p;
 		}
@@ -7087,7 +7142,7 @@ alist_expand(fnum_list, fnum_len)
 	old_arg_count = GARGCOUNT;
 	if (expand_wildcards(old_arg_count, old_arg_files,
 		    &new_arg_file_count, &new_arg_files,
-		    EW_FILE|EW_NOTFOUND|EW_ADDSLASH) == OK
+		    EW_FILE|EW_NOTFOUND|EW_ADDSLASH|EW_NOERROR) == OK
 		&& new_arg_file_count > 0)
 	{
 	    alist_set(&global_alist, new_arg_file_count, new_arg_files,
@@ -8186,6 +8241,12 @@ do_sleep(msec)
     {
 	ui_delay(msec - done > 1000L ? 1000L : msec - done, TRUE);
 	ui_breakcheck();
+#ifdef FEAT_NETBEANS_INTG
+	/* Process the netbeans messages that may have been received in the
+	 * call to ui_breakcheck() when the GUI is in use. This may occur when
+	 * running a test case. */
+	netbeans_parse_messages();
+#endif
     }
 }
 
@@ -8257,7 +8318,7 @@ ex_wincmd(eap)
     p = skipwhite(p);
     if (*p != NUL && *p != '"' && eap->nextcmd == NULL)
 	EMSG(_(e_invarg));
-    else
+    else if (!eap->skip)
     {
 	/* Pass flags on for ":vertical wincmd ]". */
 	postponed_split_flags = cmdmod.split;

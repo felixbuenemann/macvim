@@ -1,12 +1,15 @@
 " Vim syntax file
 " Language:	Vim help file
 " Maintainer:	Bram Moolenaar (Bram@vim.org)
-" Last Change:	2010 Nov 03
+" Last Change:	2012 Jan 08
 
 " Quit when a (custom) syntax file was already loaded
 if exists("b:current_syntax")
   finish
 endif
+
+let s:cpo_save = &cpo
+set cpo&vim
 
 syn match helpHeadline		"^[-A-Z .][-A-Z0-9 .()]*[ \t]\+\*"me=e-1
 syn match helpSectionDelim	"^=\{3,}.*===$"
@@ -21,9 +24,15 @@ else
   syn match helpHyperTextEntry	"\*[#-)!+-~]\+\*\s"he=e-1 contains=helpStar
   syn match helpHyperTextEntry	"\*[#-)!+-~]\+\*$" contains=helpStar
 endif
-syn match helpBar		contained "|" conceal
-syn match helpStar		contained "\*" conceal
+if has("conceal")
+  syn match helpBar		contained "|" conceal
+  syn match helpStar		contained "\*" conceal
+else
+  syn match helpBar		contained "|"
+  syn match helpStar		contained "\*"
+endif
 syn match helpNormal		"|.*====*|"
+syn match helpNormal		"|||"
 syn match helpNormal		":|vim:|"	" for :help modeline
 syn match helpVim		"Vim version [0-9.a-z]\+"
 syn match helpVim		"VIM REFERENCE.*"
@@ -31,7 +40,11 @@ syn match helpOption		"'[a-z]\{2,\}'"
 syn match helpOption		"'t_..'"
 syn match helpHeader		"\s*\zs.\{-}\ze\s\=\~$" nextgroup=helpIgnore
 syn match helpGraphic		".* \ze`$" nextgroup=helpIgnore
-syn match helpIgnore		"." contained conceal
+if has("conceal")
+  syn match helpIgnore		"." contained conceal
+else
+  syn match helpIgnore		"." contained
+endif
 syn keyword helpNote		note Note NOTE note: Note: NOTE: Notes Notes:
 syn match helpSpecial		"\<N\>"
 syn match helpSpecial		"\<N\.$"me=e-1
@@ -186,4 +199,6 @@ hi def link helpURL		String
 
 let b:current_syntax = "help"
 
+let &cpo = s:cpo_save
+unlet s:cpo_save
 " vim: ts=8 sw=2

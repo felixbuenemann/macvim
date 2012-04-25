@@ -333,7 +333,7 @@ coladvance2(pos, addspaces, finetune, wcol)
 #ifdef FEAT_MBYTE
     /* prevent from moving onto a trail byte */
     if (has_mbyte)
-	mb_adjustpos(pos);
+	mb_adjustpos(curbuf, pos);
 #endif
 
     if (col < wcol)
@@ -544,16 +544,26 @@ check_cursor_lnum()
     void
 check_cursor_col()
 {
+    check_cursor_col_win(curwin);
+}
+
+/*
+ * Make sure win->w_cursor.col is valid.
+ */
+    void
+check_cursor_col_win(win)
+    win_T *win;
+{
     colnr_T len;
 #ifdef FEAT_VIRTUALEDIT
-    colnr_T oldcol = curwin->w_cursor.col;
-    colnr_T oldcoladd = curwin->w_cursor.col + curwin->w_cursor.coladd;
+    colnr_T oldcol = win->w_cursor.col;
+    colnr_T oldcoladd = win->w_cursor.col + win->w_cursor.coladd;
 #endif
 
-    len = (colnr_T)STRLEN(ml_get_curline());
+    len = (colnr_T)STRLEN(ml_get_buf(win->w_buffer, win->w_cursor.lnum, FALSE));
     if (len == 0)
-	curwin->w_cursor.col = 0;
-    else if (curwin->w_cursor.col >= len)
+	win->w_cursor.col = 0;
+    else if (win->w_cursor.col >= len)
     {
 	/* Allow cursor past end-of-line when:
 	 * - in Insert mode or restarting Insert mode
@@ -567,33 +577,33 @@ check_cursor_col()
 		|| (ve_flags & VE_ONEMORE)
 #endif
 		|| virtual_active())
-	    curwin->w_cursor.col = len;
+	    win->w_cursor.col = len;
 	else
 	{
-	    curwin->w_cursor.col = len - 1;
+	    win->w_cursor.col = len - 1;
 #ifdef FEAT_MBYTE
-	    /* prevent cursor from moving on the trail byte */
+	    /* Move the cursor to the head byte. */
 	    if (has_mbyte)
-		mb_adjust_cursor();
+		mb_adjustpos(win->w_buffer, &win->w_cursor);
 #endif
 	}
     }
-    else if (curwin->w_cursor.col < 0)
-	curwin->w_cursor.col = 0;
+    else if (win->w_cursor.col < 0)
+	win->w_cursor.col = 0;
 
 #ifdef FEAT_VIRTUALEDIT
     /* If virtual editing is on, we can leave the cursor on the old position,
      * only we must set it to virtual.  But don't do it when at the end of the
      * line. */
     if (oldcol == MAXCOL)
-	curwin->w_cursor.coladd = 0;
+	win->w_cursor.coladd = 0;
     else if (ve_flags == VE_ALL)
     {
-	if (oldcoladd > curwin->w_cursor.col)
-	    curwin->w_cursor.coladd = oldcoladd - curwin->w_cursor.col;
+	if (oldcoladd > win->w_cursor.col)
+	    win->w_cursor.coladd = oldcoladd - win->w_cursor.col;
 	else
 	    /* avoid weird number when there is a miscalculation or overflow */
-	    curwin->w_cursor.coladd = 0;
+	    win->w_cursor.coladd = 0;
     }
 #endif
 }
@@ -1002,8 +1012,12 @@ do_outofmem_msg(size)
     {
 	/* Don't hide this message */
 	emsg_silent = 0;
-	EMSGN(_("E342: Out of memory!  (allocating %lu bytes)"), size);
+
+	/* Must come first to avoid coming back here when printing the error
+	 * message fails, e.g. when setting v:errmsg. */
 	did_outofmem_msg = TRUE;
+
+	EMSGN(_("E342: Out of memory!  (allocating %lu bytes)"), size);
     }
 }
 
@@ -1159,7 +1173,7 @@ free_all_mem()
     for (buf = firstbuf; buf != NULL; )
     {
 	nextbuf = buf->b_next;
-	close_buffer(NULL, buf, DOBUF_WIPE);
+	close_buffer(NULL, buf, DOBUF_WIPE, FALSE);
 	if (buf_valid(buf))
 	    buf = nextbuf;	/* didn't work, try next one */
 	else
@@ -1545,7 +1559,7 @@ strup_save(orig)
 	    if (enc_utf8)
 	    {
 		int	c, uc;
-		int	nl;
+		int	newl;
 		char_u	*s;
 
 		c = utf_ptr2char(p);
@@ -1554,21 +1568,21 @@ strup_save(orig)
 		/* Reallocate string when byte count changes.  This is rare,
 		 * thus it's OK to do another malloc()/free(). */
 		l = utf_ptr2len(p);
-		nl = utf_char2len(uc);
-		if (nl != l)
+		newl = utf_char2len(uc);
+		if (newl != l)
 		{
-		    s = alloc((unsigned)STRLEN(res) + 1 + nl - l);
+		    s = alloc((unsigned)STRLEN(res) + 1 + newl - l);
 		    if (s == NULL)
 			break;
 		    mch_memmove(s, res, p - res);
-		    STRCPY(s + (p - res) + nl, p + l);
+		    STRCPY(s + (p - res) + newl, p + l);
 		    p = s + (p - res);
 		    vim_free(res);
 		    res = s;
 		}
 
 		utf_char2bytes(uc, p);
-		p += nl;
+		p += newl;
 	    }
 	    else if (has_mbyte && (l = (*mb_ptr2len)(p)) > 1)
 		p += l;		/* skip multi-byte character */
@@ -2050,24 +2064,22 @@ ga_grow(gap, n)
     garray_T	*gap;
     int		n;
 {
-    size_t	len;
+    size_t	old_len;
+    size_t	new_len;
     char_u	*pp;
 
     if (gap->ga_maxlen - gap->ga_len < n)
     {
 	if (n < gap->ga_growsize)
 	    n = gap->ga_growsize;
-	len = gap->ga_itemsize * (gap->ga_len + n);
-	pp = alloc_clear((unsigned)len);
+	new_len = gap->ga_itemsize * (gap->ga_len + n);
+	pp = (gap->ga_data == NULL)
+	      ? alloc((unsigned)new_len) : vim_realloc(gap->ga_data, new_len);
 	if (pp == NULL)
 	    return FAIL;
+	old_len = gap->ga_itemsize * gap->ga_maxlen;
+	vim_memset(pp + old_len, 0, new_len - old_len);
 	gap->ga_maxlen = gap->ga_len + n;
-	if (gap->ga_data != NULL)
-	{
-	    mch_memmove(pp, gap->ga_data,
-				      (size_t)(gap->ga_itemsize * gap->ga_len));
-	    vim_free(gap->ga_data);
-	}
 	gap->ga_data = pp;
     }
     return OK;
@@ -2135,6 +2147,25 @@ ga_append(gap, c)
 	++gap->ga_len;
     }
 }
+
+#if (defined(UNIX) && !defined(USE_SYSTEM)) || defined(WIN3264)
+/*
+ * Append the text in "gap" below the cursor line and clear "gap".
+ */
+    void
+append_ga_line(gap)
+    garray_T	*gap;
+{
+    /* Remove trailing CR. */
+    if (gap->ga_len > 0
+	    && !curbuf->b_p_bin
+	    && ((char_u *)gap->ga_data)[gap->ga_len - 1] == CAR)
+	--gap->ga_len;
+    ga_append(gap, NUL);
+    ml_append(curwin->w_cursor.lnum++, gap->ga_data, 0, FALSE);
+    gap->ga_len = 0;
+}
+#endif
 
 /************************************************************************
  * functions that use lookup tables for various things, generally to do with
@@ -2383,10 +2414,21 @@ static struct key_name_entry
     {'<',		(char_u *)"lt"},
 
     {K_MOUSE,		(char_u *)"Mouse"},
+#ifdef FEAT_MOUSE_NET
     {K_NETTERM_MOUSE,	(char_u *)"NetMouse"},
+#endif
+#ifdef FEAT_MOUSE_DEC
     {K_DEC_MOUSE,	(char_u *)"DecMouse"},
+#endif
+#ifdef FEAT_MOUSE_JSB
     {K_JSBTERM_MOUSE,	(char_u *)"JsbMouse"},
+#endif
+#ifdef FEAT_MOUSE_PTERM
     {K_PTERM_MOUSE,	(char_u *)"PtermMouse"},
+#endif
+#ifdef FEAT_MOUSE_URXVT
+    {K_URXVT_MOUSE,	(char_u *)"UrxvtMouse"},
+#endif
     {K_LEFTMOUSE,	(char_u *)"LeftMouse"},
     {K_LEFTMOUSE_NM,	(char_u *)"LeftMouseNM"},
     {K_LEFTDRAG,	(char_u *)"LeftDrag"},
@@ -2731,6 +2773,7 @@ find_special_key(srcp, modp, keycode, keep_x_key)
     int		bit;
     int		key;
     unsigned long n;
+    int		l;
 
     src = *srcp;
     if (src[0] != '<')
@@ -2743,25 +2786,31 @@ find_special_key(srcp, modp, keycode, keep_x_key)
 	if (*bp == '-')
 	{
 	    last_dash = bp;
-	    if (bp[1] != NUL && bp[2] == '>')
-		++bp;	/* anything accepted, like <C-?> */
+	    if (bp[1] != NUL)
+	    {
+#ifdef FEAT_MBYTE
+		if (has_mbyte)
+		    l = mb_ptr2len(bp + 1);
+		else
+#endif
+		    l = 1;
+		if (bp[l + 1] == '>')
+		    bp += l;	/* anything accepted, like <C-?> */
+	    }
 	}
 	if (bp[0] == 't' && bp[1] == '_' && bp[2] && bp[3])
 	    bp += 3;	/* skip t_xx, xx may be '-' or '>' */
+	else if (STRNICMP(bp, "char-", 5) == 0)
+	{
+	    vim_str2nr(bp + 5, NULL, &l, TRUE, TRUE, NULL, NULL);
+	    bp += l + 5;
+	    break;
+	}
     }
 
     if (*bp == '>')	/* found matching '>' */
     {
 	end_of_name = bp + 1;
-
-	if (STRNICMP(src + 1, "char-", 5) == 0 && VIM_ISDIGIT(src[6]))
-	{
-	    /* <Char-123> or <Char-033> or <Char-0x33> */
-	    vim_str2nr(src + 6, NULL, NULL, TRUE, TRUE, NULL, &n);
-	    *modp = 0;
-	    *srcp = end_of_name;
-	    return (int)n;
-	}
 
 	/* Which modifiers are given? */
 	modifiers = 0x0;
@@ -2781,16 +2830,32 @@ find_special_key(srcp, modp, keycode, keep_x_key)
 	 */
 	if (bp >= last_dash)
 	{
-	    /*
-	     * Modifier with single letter, or special key name.
-	     */
-	    if (modifiers != 0 && last_dash[2] == '>')
-		key = last_dash[1];
+	    if (STRNICMP(last_dash + 1, "char-", 5) == 0
+						 && VIM_ISDIGIT(last_dash[6]))
+	    {
+		/* <Char-123> or <Char-033> or <Char-0x33> */
+		vim_str2nr(last_dash + 6, NULL, NULL, TRUE, TRUE, NULL, &n);
+		key = (int)n;
+	    }
 	    else
 	    {
-		key = get_special_key_code(last_dash + 1);
-		if (!keep_x_key)
-		    key = handle_x_keys(key);
+		/*
+		 * Modifier with single letter, or special key name.
+		 */
+#ifdef FEAT_MBYTE
+		if (has_mbyte)
+		    l = mb_ptr2len(last_dash + 1);
+		else
+#endif
+		    l = 1;
+		if (modifiers != 0 && last_dash[l + 1] == '>')
+		    key = PTR2CHAR(last_dash + 1);
+		else
+		{
+		    key = get_special_key_code(last_dash + 1);
+		    if (!keep_x_key)
+			key = handle_x_keys(key);
+		}
 	    }
 
 	    /*
@@ -3164,17 +3229,31 @@ call_shell(cmd, opt)
 	    retval = mch_call_shell(cmd, opt);
 	else
 	{
-	    ncmd = alloc((unsigned)(STRLEN(cmd) + STRLEN(p_sxq) * 2 + 1));
+	    char_u *ecmd = cmd;
+
+	    if (*p_sxe != NUL && STRCMP(p_sxq, "(") == 0)
+	    {
+		ecmd = vim_strsave_escaped_ext(cmd, p_sxe, '^', FALSE);
+		if (ecmd == NULL)
+		    ecmd = cmd;
+	    }
+	    ncmd = alloc((unsigned)(STRLEN(ecmd) + STRLEN(p_sxq) * 2 + 1));
 	    if (ncmd != NULL)
 	    {
 		STRCPY(ncmd, p_sxq);
-		STRCAT(ncmd, cmd);
-		STRCAT(ncmd, p_sxq);
+		STRCAT(ncmd, ecmd);
+		/* When 'shellxquote' is ( append ).
+		 * When 'shellxquote' is "( append )". */
+		STRCAT(ncmd, STRCMP(p_sxq, "(") == 0 ? (char_u *)")"
+			   : STRCMP(p_sxq, "\"(") == 0 ? (char_u *)")\""
+			   : p_sxq);
 		retval = mch_call_shell(ncmd, opt);
 		vim_free(ncmd);
 	    }
 	    else
 		retval = -1;
+	    if (ecmd != cmd)
+		vim_free(ecmd);
 	}
 #ifdef FEAT_GUI
 	--hold_gui_events;
@@ -3224,7 +3303,7 @@ get_real_state()
 #if defined(FEAT_MBYTE) || defined(PROTO)
 /*
  * Return TRUE if "p" points to just after a path separator.
- * Take care of multi-byte characters.
+ * Takes care of multi-byte characters.
  * "b" must point to the start of the file name
  */
     int
@@ -3232,7 +3311,7 @@ after_pathsep(b, p)
     char_u	*b;
     char_u	*p;
 {
-    return vim_ispathsep(p[-1])
+    return p > b && vim_ispathsep(p[-1])
 			     && (!has_mbyte || (*mb_head_off)(b, p - 1) == 0);
 }
 #endif
@@ -4243,6 +4322,8 @@ static ff_stack_T *ff_create_stack_element __ARGS((char_u *, int, int));
 static int ff_path_in_stoplist __ARGS((char_u *, int, char_u **));
 #endif
 
+static char_u e_pathtoolong[] = N_("E854: path too long for completion");
+
 #if 0
 /*
  * if someone likes findfirst/findnext, here are the functions
@@ -4539,6 +4620,11 @@ vim_findfile_init(path, filename, stopdirs, level, free_visited, find_what,
 	len = 0;
 	while (*wc_part != NUL)
 	{
+	    if (len + 5 >= MAXPATHL)
+	    {
+		EMSG(_(e_pathtoolong));
+		break;
+	    }
 	    if (STRNCMP(wc_part, "**", 2) == 0)
 	    {
 		ff_expand_buffer[len++] = *wc_part++;
@@ -4584,6 +4670,12 @@ vim_findfile_init(path, filename, stopdirs, level, free_visited, find_what,
     }
 
     /* create an absolute path */
+    if (STRLEN(search_ctx->ffsc_start_dir)
+			  + STRLEN(search_ctx->ffsc_fix_path) + 3 >= MAXPATHL)
+    {
+	EMSG(_(e_pathtoolong));
+	goto error_return;
+    }
     STRCPY(ff_expand_buffer, search_ctx->ffsc_start_dir);
     add_pathsep(ff_expand_buffer);
     STRCAT(ff_expand_buffer, search_ctx->ffsc_fix_path);
@@ -4630,9 +4722,8 @@ vim_findfile_stopdir(buf)
     {
 	if (r_ptr[0] == '\\' && r_ptr[1] == ';')
 	{
-	    /* overwrite the escape char,
-	     * use STRLEN(r_ptr) to move the trailing '\0'
-	     */
+	    /* Overwrite the escape char,
+	     * use STRLEN(r_ptr) to move the trailing '\0'. */
 	    STRMOVE(r_ptr, r_ptr + 1);
 	    r_ptr++;
 	}
@@ -4891,10 +4982,13 @@ vim_findfile(search_ctx_arg)
 			stackp->ffs_filearray_size = 0;
 		}
 		else
+		    /* Add EW_NOTWILD because the expanded path may contain
+		     * wildcard characters that are to be taken literally.
+		     * This is a bit of a hack. */
 		    expand_wildcards((dirptrs[1] == NULL) ? 1 : 2, dirptrs,
 			    &stackp->ffs_filearray_size,
 			    &stackp->ffs_filearray,
-			    EW_DIR|EW_ADDSLASH|EW_SILENT);
+			    EW_DIR|EW_ADDSLASH|EW_SILENT|EW_NOTWILD);
 
 		stackp->ffs_filearray_cur = 0;
 		stackp->ffs_stage = 0;
@@ -6475,4 +6569,24 @@ put_time(fd, the_time)
 # endif
 #endif
 
+#endif
+
+#if (defined(FEAT_MBYTE) && defined(FEAT_QUICKFIX)) \
+	|| defined(FEAT_SPELL) || defined(PROTO)
+/*
+ * Return TRUE if string "s" contains a non-ASCII character (128 or higher).
+ * When "s" is NULL FALSE is returned.
+ */
+    int
+has_non_ascii(s)
+    char_u	*s;
+{
+    char_u	*p;
+
+    if (s != NULL)
+	for (p = s; *p != NUL; ++p)
+	    if (*p >= 128)
+		return TRUE;
+    return FALSE;
+}
 #endif

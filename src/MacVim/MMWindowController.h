@@ -14,7 +14,7 @@
 
 @class PSMTabBarControl;
 @class MMWindow;
-@class MMFullscreenWindow;
+@class MMFullScreenWindow;
 @class MMVimController;
 @class MMVimView;
 @class MMFileDrawerController;
@@ -36,10 +36,16 @@
     BOOL                shouldPlaceVimView;
     BOOL                shouldResizeWindow;
     BOOL                shouldRestoreUserTopLeft;
+    BOOL                shouldMaximizeWindow;
     int                 updateToolbarFlag;
     BOOL                fullscreenEnabled;
+    BOOL                keepOnScreen;
     NSString            *windowAutosaveKey;
-    MMFullscreenWindow  *fullscreenWindow;
+    BOOL                fullScreenEnabled;
+    MMFullScreenWindow  *fullScreenWindow;
+    int                 fullScreenOptions;
+    BOOL                delayEnterFullScreen;
+    NSRect              preFullScreenFrame;
     MMWindow            *decoratedWindow;
     NSString            *lastSetTitle;
     int                 userRows;
@@ -48,6 +54,7 @@
     NSPoint             defaultTopLeft;
     BOOL                vimTaskSelectedTab;
     MMFileDrawerController *fileDrawerController;
+    NSToolbar           *toolbar;
 }
 
 - (id)initWithVimController:(MMVimController *)controller;
@@ -83,9 +90,10 @@
 - (void)liveResizeWillStart;
 - (void)liveResizeDidEnd;
 
-- (void)enterFullscreen:(int)fuoptions backgroundColor:(NSColor *)back;
-- (void)leaveFullscreen;
-- (void)setFullscreenBackgroundColor:(NSColor *)back;
+- (void)enterFullScreen:(int)fuoptions backgroundColor:(NSColor *)back;
+- (void)leaveFullScreen;
+- (void)setFullScreenBackgroundColor:(NSColor *)back;
+- (void)invFullScreen:(id)sender;
 
 - (void)setBufferModified:(BOOL)mod;
 - (void)setTopLeft:(NSPoint)pt;

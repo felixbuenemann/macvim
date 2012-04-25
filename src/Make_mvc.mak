@@ -409,8 +409,8 @@ CPUARG = /G7 /arch:SSE2
 CPUARG =
 !endif
 !else
-# VC8/9 only allows specifying SSE architecture
-!if "$(CPUNR)" == "pentium4"
+# VC8/9/10 only allows specifying SSE architecture but only for 32bit
+!if "$(ASSEMBLY_ARCHITECTURE)" == "x86" && "$(CPUNR)" == "pentium4"
 CPUARG = /arch:SSE2
 !endif
 !endif
@@ -616,7 +616,7 @@ CFLAGS  = $(CFLAGS) -DFEAT_TCL -DDYNAMIC_TCL -DDYNAMIC_TCL_DLL=\"$(TCL_DLL)\" \
 		-DDYNAMIC_TCL_VER=\"$(TCL_VER_LONG)\"
 TCL_OBJ	= $(OUTDIR)\if_tcl.obj
 TCL_INC	= /I "$(TCL)\Include" /I "$(TCL)"
-TCL_LIB = $(TCL)\lib\tclstub$(TCL_VER).lib
+TCL_LIB = "$(TCL)\lib\tclstub$(TCL_VER).lib"
 !else
 CFLAGS  = $(CFLAGS) -DFEAT_TCL
 TCL_OBJ	= $(OUTDIR)\if_tcl.obj
@@ -740,6 +740,8 @@ MZSCHEME_LIB = $(MZSCHEME)\lib\msvc\libmzgc$(MZSCHEME_VER).lib \
 !endif
 !endif
 MZSCHEME_OBJ = $(OUTDIR)\if_mzsch.obj
+# increase stack size
+MZSCHEME_LIB = $(MZSCHEME_LIB) /STACK:8388608
 !endif
 
 # Perl interface
@@ -785,6 +787,11 @@ PERL_EXE = $(PERL)\Bin$(PERL_ARCH)\perl
 PERL_INC = /I $(PERL_INCDIR)
 PERL_OBJ = $(OUTDIR)\if_perl.obj $(OUTDIR)\if_perlsfio.obj
 XSUBPP = $(PERL)\lib\ExtUtils\xsubpp
+!if exist($(XSUBPP))
+XSUBPP = $(PERL_EXE) $(XSUBPP)
+!else
+XSUBPP = xsubpp
+!endif
 XSUBPP_TYPEMAP = $(PERL)\lib\ExtUtils\typemap
 
 !endif
@@ -1041,7 +1048,7 @@ $(OUTDIR)/if_lua.obj: $(OUTDIR) if_lua.c  $(INCL)
 	$(CC) $(CFLAGS) $(LUA_INC) if_lua.c
 
 if_perl.c : if_perl.xs typemap
-	$(PERL_EXE) $(XSUBPP) -prototypes -typemap $(XSUBPP_TYPEMAP) \
+	$(XSUBPP) -prototypes -typemap $(XSUBPP_TYPEMAP) \
 		-typemap typemap if_perl.xs > if_perl.c
 
 $(OUTDIR)/if_perl.obj: $(OUTDIR) if_perl.c  $(INCL)

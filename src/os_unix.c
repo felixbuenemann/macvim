@@ -154,6 +154,13 @@ static int	did_set_icon = FALSE;
 
 static void may_core_dump __ARGS((void));
 
+#ifdef HAVE_UNION_WAIT
+typedef union wait waitstatus;
+#else
+typedef int waitstatus;
+#endif
+static pid_t wait4pid __ARGS((pid_t, waitstatus *));
+
 static int  WaitForChar __ARGS((long));
 #if defined(__BEOS__)
 int  RealWaitForChar __ARGS((int, long, int *));
@@ -2153,10 +2160,13 @@ use_xterm_like_mouse(name)
  * Return non-zero when using an xterm mouse, according to 'ttymouse'.
  * Return 1 for "xterm".
  * Return 2 for "xterm2".
+ * Return 3 for "urxvt".
  */
     int
 use_xterm_mouse()
 {
+    if (ttym_flags == TTYM_URXVT)
+	return 3;
     if (ttym_flags == TTYM_XTERM2)
 	return 2;
     if (ttym_flags == TTYM_XTERM)
@@ -2738,6 +2748,13 @@ mch_get_acl(fname)
 #ifdef HAVE_POSIX_ACL
     ret = (vim_acl_T)acl_get_file((char *)fname, ACL_TYPE_ACCESS);
 #else
+#ifdef HAVE_SOLARIS_ZFS_ACL
+    acl_t *aclent;
+
+    if (acl_get((char *)fname, 0, &aclent) < 0)
+	return NULL;
+    ret = (vim_acl_T)aclent;
+#else
 #ifdef HAVE_SOLARIS_ACL
     vim_acl_solaris_T   *aclent;
 
@@ -2783,6 +2800,7 @@ mch_get_acl(fname)
     ret = (vim_acl_T)aclent;
 #endif /* HAVE_AIX_ACL */
 #endif /* HAVE_SOLARIS_ACL */
+#endif /* HAVE_SOLARIS_ZFS_ACL */
 #endif /* HAVE_POSIX_ACL */
     return ret;
 }
@@ -2800,6 +2818,9 @@ mch_set_acl(fname, aclent)
 #ifdef HAVE_POSIX_ACL
     acl_set_file((char *)fname, ACL_TYPE_ACCESS, (acl_t)aclent);
 #else
+#ifdef HAVE_SOLARIS_ZFS_ACL
+    acl_set((char *)fname, (acl_t *)aclent);
+#else
 #ifdef HAVE_SOLARIS_ACL
     acl((char *)fname, SETACL, ((vim_acl_solaris_T *)aclent)->acl_cnt,
 	    ((vim_acl_solaris_T *)aclent)->acl_entry);
@@ -2808,6 +2829,7 @@ mch_set_acl(fname, aclent)
     chacl((char *)fname, aclent, ((struct acl *)aclent)->acl_len);
 #endif /* HAVE_AIX_ACL */
 #endif /* HAVE_SOLARIS_ACL */
+#endif /* HAVE_SOLARIS_ZFS_ACL */
 #endif /* HAVE_POSIX_ACL */
 }
 
@@ -2820,6 +2842,9 @@ mch_free_acl(aclent)
 #ifdef HAVE_POSIX_ACL
     acl_free((acl_t)aclent);
 #else
+#ifdef HAVE_SOLARIS_ZFS_ACL
+    acl_free((acl_t *)aclent);
+#else
 #ifdef HAVE_SOLARIS_ACL
     free(((vim_acl_solaris_T *)aclent)->acl_entry);
     free(aclent);
@@ -2828,6 +2853,7 @@ mch_free_acl(aclent)
     free(aclent);
 #endif /* HAVE_AIX_ACL */
 #endif /* HAVE_SOLARIS_ACL */
+#endif /* HAVE_SOLARIS_ZFS_ACL */
 #endif /* HAVE_POSIX_ACL */
 }
 #endif
@@ -3317,6 +3343,17 @@ mch_setmouse(on)
 	return;
 
     xterm_mouse_vers = use_xterm_mouse();
+
+# ifdef FEAT_MOUSE_URXVT
+    if (ttym_flags == TTYM_URXVT) {
+	out_str_nf((char_u *)
+		   (on
+		   ? IF_EB("\033[?1015h", ESC_STR "[?1015h")
+		   : IF_EB("\033[?1015l", ESC_STR "[?1015l")));
+	ison = on;
+    }
+# endif
+
     if (xterm_mouse_vers > 0)
     {
 	if (on)	/* enable mouse events, use mouse tracking if available */
@@ -3433,6 +3470,9 @@ check_mouse_termcode()
 {
 # ifdef FEAT_MOUSE_XTERM
     if (use_xterm_mouse()
+# ifdef FEAT_MOUSE_URXVT
+	    && use_xterm_mouse() != 3
+# endif
 #  ifdef FEAT_GUI
 	    && !gui.in_use
 #  endif
@@ -3521,6 +3561,27 @@ check_mouse_termcode()
 				      (char_u *) IF_EB("\033[", ESC_STR "["));
     else
 	del_mouse_termcode(KS_PTERM_MOUSE);
+# endif
+# ifdef FEAT_MOUSE_URXVT
+    /* same as the dec mouse */
+    if (use_xterm_mouse() == 3
+#  ifdef FEAT_GUI
+	    && !gui.in_use
+#  endif
+	    )
+    {
+	set_mouse_termcode(KS_URXVT_MOUSE, (char_u *)(term_is_8bit(T_NAME)
+		    ? IF_EB("\233", CSI_STR)
+		    : IF_EB("\033[", ESC_STR "[")));
+
+	if (*p_mouse != NUL)
+	{
+	    mch_setmouse(FALSE);
+	    setmouse();
+	}
+    }
+    else
+	del_mouse_termcode(KS_URXVT_MOUSE);
 # endif
 }
 #endif
@@ -3666,26 +3727,46 @@ mch_new_shellsize()
     /* Nothing to do. */
 }
 
-#ifndef USE_SYSTEM
-static void append_ga_line __ARGS((garray_T *gap));
-
 /*
- * Append the text in "gap" below the cursor line and clear "gap".
+ * Wait for process "child" to end.
+ * Return "child" if it exited properly, <= 0 on error.
  */
-    static void
-append_ga_line(gap)
-    garray_T	*gap;
+    static pid_t
+wait4pid(child, status)
+    pid_t	child;
+    waitstatus	*status;
 {
-    /* Remove trailing CR. */
-    if (gap->ga_len > 0
-	    && !curbuf->b_p_bin
-	    && ((char_u *)gap->ga_data)[gap->ga_len - 1] == CAR)
-	--gap->ga_len;
-    ga_append(gap, NUL);
-    ml_append(curwin->w_cursor.lnum++, gap->ga_data, 0, FALSE);
-    gap->ga_len = 0;
+    pid_t wait_pid = 0;
+
+    while (wait_pid != child)
+    {
+# ifdef _THREAD_SAFE
+	/* Ugly hack: when compiled with Python threads are probably
+	 * used, in which case wait() sometimes hangs for no obvious
+	 * reason.  Use waitpid() instead and loop (like the GUI). */
+#  ifdef __NeXT__
+	wait_pid = wait4(child, status, WNOHANG, (struct rusage *)0);
+#  else
+	wait_pid = waitpid(child, status, WNOHANG);
+#  endif
+	if (wait_pid == 0)
+	{
+	    /* Wait for 1/100 sec before trying again. */
+	    mch_delay(10L, TRUE);
+	    continue;
+	}
+# else
+	wait_pid = wait(status);
+# endif
+	if (wait_pid <= 0
+# ifdef ECHILD
+		&& errno == ECHILD
+# endif
+	   )
+	    break;
+    }
+    return wait_pid;
 }
-#endif
 
     int
 mch_call_shell(cmd, options)
@@ -3828,6 +3909,7 @@ mch_call_shell(cmd, options)
     int		retval = -1;
     char	**argv = NULL;
     int		argc;
+    char_u	*p_shcf_copy = NULL;
     int		i;
     char_u	*p;
     int		inquote;
@@ -3894,6 +3976,19 @@ mch_call_shell(cmd, options)
 	}
 	if (argv == NULL)
 	{
+	    /*
+	     * Account for possible multiple args in p_shcf.
+	     */
+	    p = p_shcf;
+	    for (;;)
+	    {
+		p = skiptowhite(p);
+		if (*p == NUL)
+		    break;
+		++argc;
+		p = skipwhite(p);
+	    }
+
 	    argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
 	    if (argv == NULL)	    /* out of memory */
 		goto error;
@@ -3901,9 +3996,27 @@ mch_call_shell(cmd, options)
     }
     if (cmd != NULL)
     {
+	char_u	*s;
+
 	if (extra_shell_arg != NULL)
 	    argv[argc++] = (char *)extra_shell_arg;
-	argv[argc++] = (char *)p_shcf;
+
+	/* Break 'shellcmdflag' into white separated parts.  This doesn't
+	 * handle quoted strings, they are very unlikely to appear. */
+	p_shcf_copy = alloc((unsigned)STRLEN(p_shcf) + 1);
+	if (p_shcf_copy == NULL)    /* out of memory */
+	    goto error;
+	s = p_shcf_copy;
+	p = p_shcf;
+	while (*p != NUL)
+	{
+	    argv[argc++] = (char *)s;
+	    while (*p && *p != ' ' && *p != TAB)
+		*s++ = *p++;
+	    *s++ = NUL;
+	    p = skipwhite(p);
+	}
+
 	argv[argc++] = (char *)cmd;
     }
     argv[argc] = NULL;
@@ -3928,11 +4041,21 @@ mch_call_shell(cmd, options)
 	if (p_guipty && !(options & (SHELL_READ|SHELL_WRITE)))
 	{
 	    pty_master_fd = OpenPTY(&tty_name);	    /* open pty */
-	    if (pty_master_fd >= 0 && ((pty_slave_fd =
-				    open(tty_name, O_RDWR | O_EXTRA, 0)) < 0))
+	    if (pty_master_fd >= 0)
 	    {
-		close(pty_master_fd);
-		pty_master_fd = -1;
+		/* Leaving out O_NOCTTY may lead to waitpid() always returning
+		 * 0 on Mac OS X 10.7 thereby causing freezes. Let's assume
+		 * adding O_NOCTTY always works when defined. */
+#ifdef O_NOCTTY
+		pty_slave_fd = open(tty_name, O_RDWR | O_NOCTTY | O_EXTRA, 0);
+#else
+		pty_slave_fd = open(tty_name, O_RDWR | O_EXTRA, 0);
+#endif
+		if (pty_slave_fd < 0)
+		{
+		    close(pty_master_fd);
+		    pty_master_fd = -1;
+		}
 	    }
 	}
 	/*
@@ -4232,15 +4355,13 @@ mch_call_shell(cmd, options)
 		    {
 			MSG_PUTS(_("\nCannot fork\n"));
 		    }
-		    else if (wpid == 0)
+		    else if (wpid == 0) /* child */
 		    {
 			linenr_T    lnum = curbuf->b_op_start.lnum;
 			int	    written = 0;
 			char_u	    *lp = ml_get(lnum);
-			char_u	    *s;
 			size_t	    l;
 
-			/* child */
 			close(fromshell_fd);
 			for (;;)
 			{
@@ -4252,7 +4373,8 @@ mch_call_shell(cmd, options)
 				len = write(toshell_fd, "", (size_t)1);
 			    else
 			    {
-				s = vim_strchr(lp + written, NL);
+				char_u	*s = vim_strchr(lp + written, NL);
+
 				len = write(toshell_fd, (char *)lp + written,
 					   s == NULL ? l
 					      : (size_t)(s - (lp + written)));
@@ -4285,7 +4407,7 @@ mch_call_shell(cmd, options)
 			}
 			_exit(0);
 		    }
-		    else
+		    else /* parent */
 		    {
 			close(toshell_fd);
 			toshell_fd = -1;
@@ -4586,7 +4708,7 @@ mch_call_shell(cmd, options)
 		     * typed characters (otherwise we would lose typeahead).
 		     */
 # ifdef __NeXT__
-		    wait_pid = wait4(pid, &status, WNOHANG, (struct rusage *) 0);
+		    wait_pid = wait4(pid, &status, WNOHANG, (struct rusage *)0);
 # else
 		    wait_pid = waitpid(pid, &status, WNOHANG);
 # endif
@@ -4635,33 +4757,8 @@ finished:
 	     * Don't wait if wait_pid was already set above, indicating the
 	     * child already exited.
 	     */
-	    while (wait_pid != pid)
-	    {
-# ifdef _THREAD_SAFE
-		/* Ugly hack: when compiled with Python threads are probably
-		 * used, in which case wait() sometimes hangs for no obvious
-		 * reason.  Use waitpid() instead and loop (like the GUI). */
-#  ifdef __NeXT__
-		wait_pid = wait4(pid, &status, WNOHANG, (struct rusage *)0);
-#  else
-		wait_pid = waitpid(pid, &status, WNOHANG);
-#  endif
-		if (wait_pid == 0)
-		{
-		    /* Wait for 1/100 sec before trying again. */
-		    mch_delay(10L, TRUE);
-		    continue;
-		}
-# else
-		wait_pid = wait(&status);
-# endif
-		if (wait_pid <= 0
-# ifdef ECHILD
-			&& errno == ECHILD
-# endif
-		   )
-		    break;
-	    }
+	    if (wait_pid != pid)
+		wait_pid = wait4pid(pid, &status);
 
 # ifdef FEAT_GUI
 	    /* Close slave side of pty.  Only do this after the child has
@@ -4674,7 +4771,10 @@ finished:
 	    /* Make sure the child that writes to the external program is
 	     * dead. */
 	    if (wpid > 0)
+	    {
 		kill(wpid, SIGKILL);
+		wait4pid(wpid, NULL);
+	    }
 
 	    /*
 	     * Set to raw mode right now, otherwise a CTRL-C after
@@ -4710,6 +4810,7 @@ finished:
 	}
     }
     vim_free(argv);
+    vim_free(p_shcf_copy);
 
 error:
     if (!did_settmode)
@@ -4820,7 +4921,8 @@ WaitForChar(msec)
 
 /*
  * Wait "msec" msec until a character is available from file descriptor "fd".
- * Time == -1 will block forever.
+ * "msec" == 0 will check for characters once.
+ * "msec" == -1 will block until a character is available.
  * When a GUI is being used, this will not be used for input -- webb
  * Returns also, when a request from Sniff is waiting -- toni.
  * Or when a Linux GPM mouse event is waiting.
@@ -5058,7 +5160,8 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	/*
 	 * Select on ready for reading and exceptional condition (end of file).
 	 */
-	FD_ZERO(&rfds); /* calls bzero() on a sun */
+select_eintr:
+	FD_ZERO(&rfds);
 	FD_ZERO(&efds);
 	FD_SET(fd, &rfds);
 # if !defined(__QNX__) && !defined(__CYGWIN32__)
@@ -5118,6 +5221,21 @@ RealWaitForChar(fd, msec, check_for_gpm)
 # else
 	ret = select(maxfd + 1, &rfds, NULL, &efds, tvp);
 # endif
+# ifdef EINTR
+	if (ret == -1 && errno == EINTR)
+	{
+	    /* Check whether window has been resized, EINTR may be caused by
+	     * SIGWINCH. */
+	    if (do_resize)
+		handle_resize();
+
+	    /* Interrupted by a signal, need to try again.  We ignore msec
+	     * here, because we do want to check even after a timeout if
+	     * characters are available.  Needed for reading output of an
+	     * external command after the process has finished. */
+	    goto select_eintr;
+	}
+# endif
 # ifdef __TANDEM
 	if (ret == -1 && errno == ENOTSUP)
 	{
@@ -5125,7 +5243,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	    FD_ZERO(&efds);
 	    ret = 0;
 	}
-#endif
+# endif
 # ifdef FEAT_MZSCHEME
 	if (ret == 0 && mzquantum_used)
 	    /* loop if MzThreads must be scheduled and timeout occurred */

@@ -122,7 +122,8 @@
     || defined(FEAT_GUI_W32) \
     || defined(FEAT_GUI_W16) \
     || defined(FEAT_GUI_PHOTON)
-# if !defined(FEAT_GUI)
+# define FEAT_GUI_ENABLED  /* also defined with NO_X11_INCLUDES */
+# if !defined(FEAT_GUI) && !defined(NO_X11_INCLUDES)
 #  define FEAT_GUI
 # endif
 #endif
@@ -796,6 +797,7 @@ extern char *(*dyn_libintl_textdomain)(const char *domainname);
 #define WILD_PREV		5
 #define WILD_ALL		6
 #define WILD_LONGEST		7
+#define WILD_ALL_KEEP		8
 
 #define WILD_LIST_NOTFOUND	1
 #define WILD_HOME_REPLACE	2
@@ -817,6 +819,8 @@ extern char *(*dyn_libintl_textdomain)(const char *domainname);
 #define EW_EXEC		0x40	/* executable files */
 #define EW_PATH		0x80	/* search in 'path' too */
 #define EW_ICASE	0x100	/* ignore case */
+#define EW_NOERROR	0x200	/* no error for bad regexp */
+#define EW_NOTWILD	0x400	/* add match with literal name if exists */
 /* Note: mostly EW_NOTFOUND and EW_SILENT are mutually exclusive: EW_NOTFOUND
  * is used when executing commands and EW_SILENT for interactive expanding. */
 
@@ -1317,6 +1321,7 @@ typedef enum
     , HLF_M	    /* "--More--" message */
     , HLF_CM	    /* Mode (e.g., "-- INSERT --") */
     , HLF_N	    /* line number for ":number" and ":#" commands */
+    , HLF_CLN	    /* current line number */
     , HLF_R	    /* return to continue message and yes/no questions */
     , HLF_S	    /* status lines */
     , HLF_SNC	    /* status lines of not-current windows */
@@ -1354,7 +1359,7 @@ typedef enum
 /* The HL_FLAGS must be in the same order as the HLF_ enums!
  * When changing this also adjust the default for 'highlight'. */
 #define HL_FLAGS {'8', '@', 'd', 'e', 'h', 'i', 'l', 'm', 'M', \
-		  'n', 'r', 's', 'S', 'c', 't', 'v', 'V', 'w', 'W', \
+		  'n', 'N', 'r', 's', 'S', 'c', 't', 'v', 'V', 'w', 'W', \
 		  'f', 'F', 'A', 'C', 'D', 'T', '-', '>', \
 		  'B', 'P', 'R', 'L', \
 		  '+', '=', 'x', 'X', '*', '#', '_', '!', '.', 'o'}

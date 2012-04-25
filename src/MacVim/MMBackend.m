@@ -1150,27 +1150,27 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     return NO;
 }
 
-- (void)enterFullscreen:(int)fuoptions background:(int)bg
+- (void)enterFullScreen:(int)fuoptions background:(int)bg
 {
     NSMutableData *data = [NSMutableData data];
     [data appendBytes:&fuoptions length:sizeof(int)];
     bg = MM_COLOR(bg);
     [data appendBytes:&bg length:sizeof(int)];
-    [self queueMessage:EnterFullscreenMsgID data:data];
+    [self queueMessage:EnterFullScreenMsgID data:data];
 }
 
-- (void)leaveFullscreen
+- (void)leaveFullScreen
 {
-    [self queueMessage:LeaveFullscreenMsgID data:nil];
+    [self queueMessage:LeaveFullScreenMsgID data:nil];
 }
 
-- (void)setFullscreenBackgroundColor:(int)color
+- (void)setFullScreenBackgroundColor:(int)color
 {
     NSMutableData *data = [NSMutableData data];
     color = MM_COLOR(color);
     [data appendBytes:&color length:sizeof(int)];
 
-    [self queueMessage:SetFullscreenColorMsgID data:data];
+    [self queueMessage:SetFullScreenColorMsgID data:data];
 }
 
 - (void)setAntialias:(BOOL)antialias
@@ -1819,6 +1819,7 @@ static void netbeansReadCallback(CFSocketRef s,
         [NSNumber numberWithInt:p_mh], @"p_mh",
         [NSNumber numberWithBool:mmta], @"p_mmta",
         [NSNumber numberWithInt:numTabs], @"numTabs",
+        [NSNumber numberWithInt:fuoptions_flags], @"fullScreenOptions",
         nil];
 
     // Put the state before all other messages.
@@ -1879,13 +1880,13 @@ static void netbeansReadCallback(CFSocketRef s,
 
         int numLines = (dy != 0) ? (int)round(dy) : (int)round(dx);
         if (numLines < 0) numLines = -numLines;
-        if (numLines == 0) numLines = 1;
 
+        if (numLines != 0) {
 #ifdef FEAT_GUI_SCROLL_WHEEL_FORCE
-        gui.scroll_wheel_force = numLines;
+            gui.scroll_wheel_force = numLines;
 #endif
-
-        gui_send_mouse_event(button, col, row, NO, flags);
+            gui_send_mouse_event(button, col, row, NO, flags);
+        }
 
 #ifdef FEAT_BEVAL
         if (p_beval && balloonEval) {

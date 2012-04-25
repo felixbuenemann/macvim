@@ -14,9 +14,11 @@
 # it's just run out of memory or something.  Run again, and it will continue
 # with 'xxd'.
 #
-# "make upx" makes *compressed* versions of the GUI and console EXEs, using the
-# excellent UPX compressor:
+# "make upx" makes *compressed* versions of the 32 bit GUI and console EXEs,
+# using the excellent UPX compressor:
 #     http://upx.sourceforge.net/
+# "make mpress" uses the MPRESS compressor for 32- and 64-bit EXEs:
+#     http://www.matcode.com/mpress.htm
 #
 # Maintained by Ron Aaron <ronaharon@yahoo.com>
 # updated 2003 Jan 20
@@ -87,7 +89,7 @@ INTLLIB=gnu_gettext
 
 # If you are using gettext-0.10.35 from http://sourceforge.net/projects/gettext
 # or gettext-0.10.37 from http://sourceforge.net/projects/mingwrep/
-# uncomment the following, but I can't build a static versión with them, ?-(|
+# uncomment the following, but I can't build a static version with them, ?-(|
 #GETTEXT=c:/gettext-0.10.37-20010430
 #STATIC_GETTEXT=USE_STATIC_GETTEXT
 #DYNAMIC_GETTEXT=DYNAMIC_GETTEXT
@@ -108,6 +110,13 @@ endif
 # on NT, it's here:
 PERLLIB=$(PERL)/lib
 PERLLIBS=$(PERLLIB)/Core
+XSUBPPTRY=$(PERLLIB)/ExtUtils/xsubpp
+XSUBPP_EXISTS=$(shell perl -e "print 1 unless -e '$(XSUBPPTRY)'")
+ifeq "$(XSUBPP_EXISTS)" ""
+XSUBPP=perl $(XSUBPPTRY)
+else
+XSUBPP=xsubpp
+endif
 endif
 
 # uncomment 'LUA' if you want a Lua-enabled version
@@ -633,8 +642,12 @@ upx: exes
 	upx gvim.exe
 	upx vim.exe
 
+mpress: exes
+	mpress gvim.exe
+	mpress vim.exe
+
 xxd/xxd.exe: xxd/xxd.c
-	$(MAKE) -C xxd -f Make_cyg.mak CC=$(CC)
+	$(MAKE) -C xxd -f Make_ming.mak CC=$(CC)
 
 GvimExt/gvimext.dll: GvimExt/gvimext.cpp GvimExt/gvimext.rc GvimExt/gvimext.h
 	$(MAKE) -C GvimExt -f Make_ming.mak CROSS=$(CROSS) CROSS_COMPILE=$(CROSS_COMPILE)
@@ -652,7 +665,7 @@ ifdef MZSCHEME
 	-$(DEL) mzscheme_base.c
 endif
 	$(MAKE) -C GvimExt -f Make_ming.mak clean
-	$(MAKE) -C xxd -f Make_cyg.mak clean
+	$(MAKE) -C xxd -f Make_ming.mak clean
 
 ###########################################################################
 INCL = vim.h feature.h os_win32.h os_dos.h ascii.h keymap.h term.h macros.h \
@@ -668,11 +681,9 @@ $(OUTDIR)/if_python3.o : if_python3.c $(INCL)
 $(OUTDIR)/%.o : %.c $(INCL)
 	$(CC) -c $(CFLAGS) $< -o $@
 
-$(OUTDIR)/vimres.res: vim.rc version.h gui_w32_rc.h
-	$(WINDRES) $(WINDRES_FLAGS) $(DEFINES) vim.rc $(OUTDIR)/vimres.res
-
-$(OUTDIR)/vimrc.o: $(OUTDIR)/vimres.res
-	$(WINDRES) $(WINDRES_FLAGS) $(OUTDIR)/vimres.res $(OUTDIR)/vimrc.o
+$(OUTDIR)/vimrc.o: vim.rc version.h gui_w32_rc.h
+	$(WINDRES) $(WINDRES_FLAGS) $(DEFINES) \
+	    --input-format=rc --output-format=coff -i vim.rc -o $@
 
 $(OUTDIR):
 	$(MKDIR) $(OUTDIR)
@@ -696,7 +707,7 @@ ifeq (16, $(RUBY))
 endif
 
 if_perl.c: if_perl.xs typemap
-	perl $(PERLLIB)/ExtUtils/xsubpp -prototypes -typemap \
+	$(XSUBPP) -prototypes -typemap \
 	     $(PERLLIB)/ExtUtils/typemap if_perl.xs > $@
 
 $(OUTDIR)/netbeans.o:	netbeans.c $(INCL) $(NBDEBUG_INCL) $(NBDEBUG_SRC)

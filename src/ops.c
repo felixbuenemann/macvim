@@ -1648,9 +1648,12 @@ op_delete(oap)
 	    && !oap->block_mode
 #endif
 	    && oap->line_count > 1
+	    && oap->motion_force == NUL
 	    && oap->op_type == OP_DELETE)
     {
-	ptr = ml_get(oap->end.lnum) + oap->end.col + oap->inclusive;
+	ptr = ml_get(oap->end.lnum) + oap->end.col;
+	if (*ptr != NUL)
+	    ptr += oap->inclusive;
 	ptr = skipwhite(ptr);
 	if (*ptr == NUL && inindent(0))
 	    oap->motion_type = MLINE;
@@ -1920,38 +1923,66 @@ op_delete(oap)
 		    curwin->w_cursor.coladd = 0;
 	    }
 #endif
-	    (void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
+	    if (oap->op_type == OP_DELETE
+		    && oap->inclusive
+		    && oap->end.lnum == curbuf->b_ml.ml_line_count
+		    && n > (int)STRLEN(ml_get(oap->end.lnum)))
+	    {
+		/* Special case: gH<Del> deletes the last line. */
+		del_lines(1L, FALSE);
+	    }
+	    else
+	    {
+		(void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
 #ifdef FEAT_VISUAL
 				    && !oap->is_VIsual
 #endif
 							);
+	    }
 	}
 	else				/* delete characters between lines */
 	{
 	    pos_T   curpos;
+	    int     delete_last_line;
 
 	    /* save deleted and changed lines for undo */
 	    if (u_save((linenr_T)(curwin->w_cursor.lnum - 1),
 		 (linenr_T)(curwin->w_cursor.lnum + oap->line_count)) == FAIL)
 		return FAIL;
 
+	    delete_last_line = (oap->end.lnum == curbuf->b_ml.ml_line_count);
 	    truncate_line(TRUE);	/* delete from cursor to end of line */
 
 	    curpos = curwin->w_cursor;	/* remember curwin->w_cursor */
 	    ++curwin->w_cursor.lnum;
 	    del_lines((long)(oap->line_count - 2), FALSE);
 
-	    /* delete from start of line until op_end */
-	    curwin->w_cursor.col = 0;
-	    (void)del_bytes((long)(oap->end.col + 1 - !oap->inclusive),
-					!virtual_op, oap->op_type == OP_DELETE
+	    if (delete_last_line)
+		oap->end.lnum = curbuf->b_ml.ml_line_count;
+
+	    n = (oap->end.col + 1 - !oap->inclusive);
+	    if (oap->inclusive && delete_last_line
+		    && n > (int)STRLEN(ml_get(oap->end.lnum)))
+	    {
+		/* Special case: gH<Del> deletes the last line. */
+		del_lines(1L, FALSE);
+		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+		if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count)
+		    curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
+	    }
+	    else
+	    {
+		/* delete from start of line until op_end */
+		curwin->w_cursor.col = 0;
+		(void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
 #ifdef FEAT_VISUAL
 					&& !oap->is_VIsual
 #endif
 							    );
-	    curwin->w_cursor = curpos;		/* restore curwin->w_cursor */
-
-	    (void)do_join(2, FALSE, FALSE);
+		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+	    }
+	    if (curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+		(void)do_join(2, FALSE, FALSE);
 	}
     }
 
@@ -2571,7 +2602,8 @@ op_insert(oap, count1)
 	firstline = ml_get(oap->start.lnum) + bd.textcol;
 	if (oap->op_type == OP_APPEND)
 	    firstline += bd.textlen;
-	if ((ins_len = (long)STRLEN(firstline) - pre_textlen) > 0)
+	if (pre_textlen >= 0
+		     && (ins_len = (long)STRLEN(firstline) - pre_textlen) > 0)
 	{
 	    ins_text = vim_strnsave(firstline, (int)ins_len);
 	    if (ins_text != NULL)
@@ -3308,8 +3340,8 @@ do_put(regname, dir, count, flags)
 	if (regname == '=')
 	{
 	    /* For the = register we need to split the string at NL
-	     * characters. */
-	    /* Loop twice: count the number of lines and save them. */
+	     * characters.
+	     * Loop twice: count the number of lines and save them. */
 	    for (;;)
 	    {
 		y_size = 0;
@@ -3325,7 +3357,7 @@ do_put(regname, dir, count, flags)
 			if (y_array != NULL)
 			    *ptr = NUL;
 			++ptr;
-			/* A trailing '\n' makes the string linewise */
+			/* A trailing '\n' makes the register linewise. */
 			if (*ptr == NUL)
 			{
 			    y_type = MLINE;
@@ -4409,7 +4441,7 @@ same_leader(lnum, leader1_len, leader1_flags, leader2_len, leader2_flags)
 #endif
 
 /*
- * implementation of the format operator 'gq'
+ * Implementation of the format operator 'gq'.
  */
     void
 op_format(oap, keep_cursor)
@@ -5733,7 +5765,9 @@ clip_get_selection(cbd)
     }
 }
 
-/* Convert from the GUI selection string into the '*'/'+' register */
+/*
+ * Convert from the GUI selection string into the '*'/'+' register.
+ */
     void
 clip_yank_selection(type, str, len, cbd)
     int		type;
@@ -6090,9 +6124,6 @@ write_reg_contents_ex(name, str, maxlen, must_append, yank_type, block_len)
     if (yank_type == MBLOCK)
 	yank_type = MAUTO;
 #endif
-    if (yank_type == MAUTO)
-	yank_type = ((len > 0 && (str[len - 1] == '\n' || str[len - 1] == '\r'))
-							     ? MLINE : MCHAR);
     str_to_reg(y_current, yank_type, str, len, block_len);
 
 # ifdef FEAT_CLIPBOARD
@@ -6113,13 +6144,14 @@ write_reg_contents_ex(name, str, maxlen, must_append, yank_type, block_len)
  * is appended.
  */
     static void
-str_to_reg(y_ptr, type, str, len, blocklen)
+str_to_reg(y_ptr, yank_type, str, len, blocklen)
     struct yankreg	*y_ptr;		/* pointer to yank register */
-    int			type;		/* MCHAR, MLINE or MBLOCK */
+    int			yank_type;	/* MCHAR, MLINE, MBLOCK, MAUTO */
     char_u		*str;		/* string to put in register */
     long		len;		/* length of string */
     long		blocklen;	/* width of Visual block */
 {
+    int		type;			/* MCHAR, MLINE or MBLOCK */
     int		lnum;
     long	start;
     long	i;
@@ -6135,6 +6167,12 @@ str_to_reg(y_ptr, type, str, len, blocklen)
 
     if (y_ptr->y_array == NULL)		/* NULL means empty register */
 	y_ptr->y_size = 0;
+
+    if (yank_type == MAUTO)
+	type = ((len > 0 && (str[len - 1] == NL || str[len - 1] == CAR))
+							     ? MLINE : MCHAR);
+    else
+	type = yank_type;
 
     /*
      * Count the number of lines within the string
@@ -6282,7 +6320,7 @@ line_count_info(line, wc, cc, limit, eol_size)
     *wc += words;
 
     /* Add eol_size if the end of line was reached before hitting limit. */
-    if (line[i] == NUL && i < limit)
+    if (i < limit && line[i] == NUL)
     {
 	i += eol_size;
 	chars += eol_size;

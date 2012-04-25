@@ -691,6 +691,7 @@ MZSCHEME_EXTRA
 MZSCHEME_MZC
 vi_cv_path_perl
 vi_cv_perllib
+vi_cv_perlsitelib
 shrpenv
 PERL_SRC
 PERL_OBJ
@@ -1343,6 +1344,8 @@ if test -n "$ac_init_help"; then
 Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-fail-if-missing    Fail if dependencies on additional features
+     specified on the command line are missing.
   --disable-darwin        Disable Darwin (Mac OS X) support.
   --disable-selinux	  Don't check for SELinux support.
   --disable-xsmp          Disable XSMP session management
@@ -3196,7 +3199,7 @@ cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
 
 _ACEOF
-rm -f -r conftest*
+rm -f conftest*
  { echo "$as_me:$LINENO: checking for library containing strerror" >&5
 echo $ECHO_N "checking for library containing strerror... $ECHO_C" >&6; }
 if test "${ac_cv_search_strerror+set}" = set; then
@@ -3430,7 +3433,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 fi
 
@@ -3451,7 +3454,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 fi
 
@@ -3603,6 +3606,19 @@ _ACEOF
 
 fi
 
+
+
+{ echo "$as_me:$LINENO: checking --enable-fail-if-missing argument" >&5
+echo $ECHO_N "checking --enable-fail-if-missing argument... $ECHO_C" >&6; }
+# Check whether --enable-fail_if_missing was given.
+if test "${enable_fail_if_missing+set}" = set; then
+  enableval=$enable_fail_if_missing; fail_if_missing="yes"
+else
+  fail_if_missing="no"
+fi
+
+{ echo "$as_me:$LINENO: result: $fail_if_missing" >&5
+echo "${ECHO_T}$fail_if_missing" >&6; }
 
 if test -z "$CFLAGS"; then
   CFLAGS="-O"
@@ -4835,6 +4851,11 @@ _ACEOF
       LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"liblua${vi_cv_version_lua}.so$LUA_SONAME\\\" $LUA_CFLAGS"
     fi
   fi
+  if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
+    { { echo "$as_me:$LINENO: error: could not configure lua" >&5
+echo "$as_me: error: could not configure lua" >&2;}
+   { (exit 1); exit 1; }; }
+  fi
 
 
 
@@ -5161,6 +5182,8 @@ echo "${ECHO_T}OK" >&6; }
 	shrpenv=""
       fi
       vi_cv_perllib=`$vi_cv_path_perl -MConfig -e 'print $Config{privlibexp}'`
+      vi_cv_perlsitelib=`$vi_cv_path_perl -MConfig -e 'print $Config{sitelibexp}'`
+
 
             perlcppflags=`$vi_cv_path_perl -Mlib=$srcdir -MExtUtils::Embed \
 	      -e 'ccflags;perl_inc;print"\n"' | sed -e 's/-fno[^ ]*//'`
@@ -5283,6 +5306,12 @@ _ACEOF
 
       PERL_CFLAGS="-DDYNAMIC_PERL_DLL=\\\"$libperl\\\" $PERL_CFLAGS"
     fi
+  fi
+
+  if test "$fail_if_missing" = "yes" -a "$perl_ok" != "yes"; then
+    { { echo "$as_me:$LINENO: error: could not configure perl" >&5
+echo "$as_me: error: could not configure perl" >&2;}
+   { (exit 1); exit 1; }; }
   fi
 fi
 
@@ -5632,6 +5661,12 @@ _ACEOF
 echo "${ECHO_T}too old" >&6; }
     fi
   fi
+
+  if test "$fail_if_missing" = "yes" -a "$python_ok" != "yes"; then
+    { { echo "$as_me:$LINENO: error: could not configure python" >&5
+echo "$as_me: error: could not configure python" >&2;}
+   { (exit 1); exit 1; }; }
+  fi
 fi
 
 
@@ -5708,6 +5743,23 @@ fi
 { echo "$as_me:$LINENO: result: $vi_cv_var_python3_version" >&5
 echo "${ECHO_T}$vi_cv_var_python3_version" >&6; }
 
+        { echo "$as_me:$LINENO: checking Python's abiflags" >&5
+echo $ECHO_N "checking Python's abiflags... $ECHO_C" >&6; }
+if test "${vi_cv_var_python3_abiflags+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+
+     vi_cv_var_python3_abiflags=
+     if ${vi_cv_path_python3} -c \
+         "import sys; sys.exit(${vi_cv_var_python3_version} < 3.2)"
+     then
+       vi_cv_var_python3_abiflags=`${vi_cv_path_python3} -c \
+         "import sys; print(sys.abiflags)"`
+     fi
+fi
+{ echo "$as_me:$LINENO: result: $vi_cv_var_python3_abiflags" >&5
+echo "${ECHO_T}$vi_cv_var_python3_abiflags" >&6; }
+
         { echo "$as_me:$LINENO: checking Python's install prefix" >&5
 echo $ECHO_N "checking Python's install prefix... $ECHO_C" >&6; }
 if test "${vi_cv_path_python3_pfx+set}" = set; then
@@ -5758,9 +5810,13 @@ if test "${vi_cv_path_python3_conf+set}" = set; then
 else
 
      vi_cv_path_python3_conf=
+     config_dir="config"
+     if test "${vi_cv_var_python3_abiflags}" != ""; then
+       config_dir="${config_dir}-${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
+     fi
      for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
        for subdir in lib64 lib share; do
-         d="${path}/${subdir}/python${vi_cv_var_python3_version}/config"
+         d="${path}/${subdir}/python${vi_cv_var_python3_version}/${config_dir}"
          if test -d "$d" && test -f "$d/config.c"; then
            vi_cv_path_python3_conf="$d"
          fi
@@ -5789,13 +5845,12 @@ __:
 	@echo "python3_BASEMODLIBS='$(BASEMODLIBS)'"
 	@echo "python3_LIBS='$(LIBS)'"
 	@echo "python3_SYSLIBS='$(SYSLIBS)'"
-	@echo "python3_LINKFORSHARED='$(LINKFORSHARED)'"
 	@echo "python3_INSTSONAME='$(INSTSONAME)'"
 eof
                     eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
           rm -f -- "${tmp_mkf}"
-          vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}"
-          vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS} ${python3_LINKFORSHARED}"
+	  vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
+          vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS}"
                     vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
           vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
 
@@ -5804,9 +5859,9 @@ fi
 
       PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
       if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
-        PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
       else
-        PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
       fi
       PYTHON3_SRC="if_python3.c"
             if test "x$MACOSX" = "xyes"; then
@@ -5972,7 +6027,7 @@ echo $ECHO_N "checking whether we can do without RTLD_GLOBAL for Python... $ECHO
   cflags_save=$CFLAGS
   CFLAGS="$CFLAGS $PYTHON_CFLAGS"
   ldflags_save=$LDFLAGS
-  LDFLAGS="$LDFLAGS -ldl"
+    LDFLAGS="-ldl $LDFLAGS"
   if test "$cross_compiling" = yes; then
   { { echo "$as_me:$LINENO: error: cannot run test program while cross compiling
 See \`config.log' for more details." >&5
@@ -6063,7 +6118,7 @@ echo $ECHO_N "checking whether we can do without RTLD_GLOBAL for Python3... $ECH
   cflags_save=$CFLAGS
   CFLAGS="$CFLAGS $PYTHON3_CFLAGS"
   ldflags_save=$LDFLAGS
-  LDFLAGS="$LDFLAGS -ldl"
+    LDFLAGS="-ldl $LDFLAGS"
   if test "$cross_compiling" = yes; then
   { { echo "$as_me:$LINENO: error: cannot run test program while cross compiling
 See \`config.log' for more details." >&5
@@ -6513,6 +6568,11 @@ _ACEOF
 echo "${ECHO_T}too old; need Tcl version 8.0 or later" >&6; }
     fi
   fi
+  if test "$fail_if_missing" = "yes" -a -z "$TCL_SRC"; then
+    { { echo "$as_me:$LINENO: error: could not configure Tcl" >&5
+echo "$as_me: error: could not configure Tcl" >&2;}
+   { (exit 1); exit 1; }; }
+  fi
 fi
 
 
@@ -6658,6 +6718,12 @@ echo "${ECHO_T}not found; disabling Ruby" >&6; }
       { echo "$as_me:$LINENO: result: too old; need Ruby version 1.6.0 or later" >&5
 echo "${ECHO_T}too old; need Ruby version 1.6.0 or later" >&6; }
     fi
+  fi
+
+  if test "$fail_if_missing" = "yes" -a -z "$RUBY_OBJ"; then
+    { { echo "$as_me:$LINENO: error: could not configure Ruby" >&5
+echo "$as_me: error: could not configure Ruby" >&2;}
+   { (exit 1); exit 1; }; }
   fi
 fi
 
@@ -7112,7 +7178,7 @@ _ACEOF
       eval "ac_im_$ac_var=\`\${MAKE-make} $ac_var 2>/dev/null | sed -n 's/^$ac_var=//p'\`"
     done
     # Open Windows xmkmf reportedly sets LIBDIR instead of USRLIBDIR.
-    for ac_extension in a so sl dylib la dll; do
+    for ac_extension in a so sl; do
       if test ! -f "$ac_im_usrlibdir/libX11.$ac_extension" &&
 	 test -f "$ac_im_libdir/libX11.$ac_extension"; then
 	ac_im_usrlibdir=$ac_im_libdir; break
@@ -7265,7 +7331,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 for ac_dir in `echo "$ac_x_includes $ac_x_header_dirs" | sed s/include/lib/g`
 do
   # Don't even attempt the hair of trying to link an X program!
-  for ac_extension in a so sl dylib la dll; do
+  for ac_extension in a so sl; do
     if test -r "$ac_dir/libX11.$ac_extension"; then
       ac_x_libraries=$ac_dir
       break 2
@@ -10313,7 +10379,7 @@ else
   { echo "$as_me:$LINENO: result: no; xim has been disabled" >&5
 echo "${ECHO_T}no; xim has been disabled" >&6; }; enable_xim = "no"
 fi
-rm -f -r conftest*
+rm -f conftest*
 
   fi
   CPPFLAGS=$cppflags_save
@@ -11930,7 +11996,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_prog_gcc_traditional=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 
   if test $ac_cv_prog_gcc_traditional = no; then
@@ -11947,7 +12013,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
   $EGREP "$ac_pattern" >/dev/null 2>&1; then
   ac_cv_prog_gcc_traditional=yes
 fi
-rm -f -r conftest*
+rm -f conftest*
 
   fi
 fi
@@ -12396,7 +12462,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_type_uid_t=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_type_uid_t" >&5
@@ -12944,7 +13010,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_type_rlim_t=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 	  { echo "$as_me:$LINENO: result: $ac_cv_type_rlim_t" >&5
 echo "${ECHO_T}$ac_cv_type_rlim_t" >&6; }
@@ -12982,7 +13048,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_type_stack_t=no
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 	  { echo "$as_me:$LINENO: result: $ac_cv_type_stack_t" >&5
 echo "${ECHO_T}$ac_cv_type_stack_t" >&6; }
@@ -13895,7 +13961,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ptys=`echo $pdir/pty??`
 fi
-rm -f -r conftest*
+rm -f conftest*
 
 if test "$ptys" != "$pdir/pty??" ; then
   p0=`echo $ptys | tr ' ' '\012' | sed -e 's/^.*\(.\).$/\1/g' | sort -u | tr -d '\012'`
@@ -14498,7 +14564,7 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 ;;
 esac
-rm -f -r conftest*
+rm -f conftest*
 
 # We used to try defining _XOPEN_SOURCE=500 too, to work around a bug
 # in glibc 2.1.3, but that breaks too many other things.
@@ -14737,7 +14803,7 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 ;;
 esac
-rm -f -r conftest*
+rm -f conftest*
   if test $ac_cv_sys_file_offset_bits = unknown; then
     { echo "$as_me:$LINENO: checking for _LARGE_FILES value needed for large files" >&5
 echo $ECHO_N "checking for _LARGE_FILES value needed for large files... $ECHO_C" >&6; }
@@ -14858,7 +14924,7 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 ;;
 esac
-rm -f -r conftest*
+rm -f conftest*
   fi
 fi
 
@@ -15563,7 +15629,74 @@ fi
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
       conftest$ac_exeext conftest.$ac_ext
 
-{ echo "$as_me:$LINENO: checking for Solaris ACL support" >&5
+{ echo "$as_me:$LINENO: checking for acl_get in -lsec" >&5
+echo $ECHO_N "checking for acl_get in -lsec... $ECHO_C" >&6; }
+if test "${ac_cv_lib_sec_acl_get+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lsec  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char acl_get ();
+int
+main ()
+{
+return acl_get ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (ac_try="$ac_link"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_link") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest$ac_exeext &&
+       $as_test_x conftest$ac_exeext; then
+  ac_cv_lib_sec_acl_get=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	ac_cv_lib_sec_acl_get=no
+fi
+
+rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+      conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ echo "$as_me:$LINENO: result: $ac_cv_lib_sec_acl_get" >&5
+echo "${ECHO_T}$ac_cv_lib_sec_acl_get" >&6; }
+if test $ac_cv_lib_sec_acl_get = yes; then
+  LIBS="$LIBS -lsec"; cat >>confdefs.h <<\_ACEOF
+#define HAVE_SOLARIS_ZFS_ACL 1
+_ACEOF
+
+else
+  { echo "$as_me:$LINENO: checking for Solaris ACL support" >&5
 echo $ECHO_N "checking for Solaris ACL support... $ECHO_C" >&6; }
 cat >conftest.$ac_ext <<_ACEOF
 /* confdefs.h.  */
@@ -15617,6 +15750,8 @@ fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
       conftest$ac_exeext conftest.$ac_ext
+fi
+
 
 { echo "$as_me:$LINENO: checking for AIX ACL support" >&5
 echo $ECHO_N "checking for AIX ACL support... $ECHO_C" >&6; }
@@ -17795,9 +17930,8 @@ _ACEOF
 { echo "$as_me:$LINENO: checking uint32_t is 32 bits" >&5
 echo $ECHO_N "checking uint32_t is 32 bits... $ECHO_C" >&6; }
 if test "$cross_compiling" = yes; then
-  { { echo "$as_me:$LINENO: error: could not compile program using uint32_t." >&5
-echo "$as_me: error: could not compile program using uint32_t." >&2;}
-   { (exit 1); exit 1; }; }
+  { echo "$as_me:$LINENO: WARNING: cannot check uint32_t when cross-compiling." >&5
+echo "$as_me: WARNING: cannot check uint32_t when cross-compiling." >&2;}
 else
   cat >conftest.$ac_ext <<_ACEOF
 /* confdefs.h.  */
@@ -19412,10 +19546,10 @@ echo "${ECHO_T}yes" >&6; }
     { echo "$as_me:$LINENO: result: no" >&5
 echo "${ECHO_T}no" >&6; }
   fi
-        { echo "$as_me:$LINENO: checking whether we need -D_FORTIFY_SOURCE=1" >&5
+          { echo "$as_me:$LINENO: checking whether we need -D_FORTIFY_SOURCE=1" >&5
 echo $ECHO_N "checking whether we need -D_FORTIFY_SOURCE=1... $ECHO_C" >&6; }
   if test "$gccmajor" -gt "3"; then
-    CFLAGS=`echo "$CFLAGS" | sed -e 's/-Wp,-D_FORTIFY_SOURCE=.//g' -e 's/-D_FORTIFY_SOURCE=.//g' -e 's/$/ -D_FORTIFY_SOURCE=1/'`
+    CFLAGS=`echo "$CFLAGS" | sed -e 's/-Wp,-D_FORTIFY_SOURCE=.//g' -e 's/-D_FORTIFY_SOURCE=.//g' -e 's/$/ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=1/'`
     { echo "$as_me:$LINENO: result: yes" >&5
 echo "${ECHO_T}yes" >&6; }
   else
@@ -20137,6 +20271,7 @@ MZSCHEME_EXTRA!$MZSCHEME_EXTRA$ac_delim
 MZSCHEME_MZC!$MZSCHEME_MZC$ac_delim
 vi_cv_path_perl!$vi_cv_path_perl$ac_delim
 vi_cv_perllib!$vi_cv_perllib$ac_delim
+vi_cv_perlsitelib!$vi_cv_perlsitelib$ac_delim
 shrpenv!$shrpenv$ac_delim
 PERL_SRC!$PERL_SRC$ac_delim
 PERL_OBJ!$PERL_OBJ$ac_delim
@@ -20155,7 +20290,6 @@ PYTHON3_CONFDIR!$PYTHON3_CONFDIR$ac_delim
 PYTHON3_LIBS!$PYTHON3_LIBS$ac_delim
 PYTHON3_CFLAGS!$PYTHON3_CFLAGS$ac_delim
 PYTHON3_SRC!$PYTHON3_SRC$ac_delim
-PYTHON3_OBJ!$PYTHON3_OBJ$ac_delim
 _ACEOF
 
   if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 97; then
@@ -20197,6 +20331,7 @@ _ACEOF
 ac_delim='%!_!# '
 for ac_last_try in false false false false false :; do
   cat >conf$$subs.sed <<_ACEOF
+PYTHON3_OBJ!$PYTHON3_OBJ$ac_delim
 vi_cv_path_tcl!$vi_cv_path_tcl$ac_delim
 TCL_SRC!$TCL_SRC$ac_delim
 TCL_OBJ!$TCL_OBJ$ac_delim
@@ -20249,7 +20384,7 @@ LIBOBJS!$LIBOBJS$ac_delim
 LTLIBOBJS!$LTLIBOBJS$ac_delim
 _ACEOF
 
-  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 50; then
+  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 51; then
     break
   elif $ac_last_try; then
     { { echo "$as_me:$LINENO: error: could not make $CONFIG_STATUS" >&5

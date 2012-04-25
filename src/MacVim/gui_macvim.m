@@ -392,6 +392,11 @@ gui_mch_wait_for_chars(int wtime)
     // called, so force a flush of the command queue here.
     [[MMBackend sharedInstance] flushQueue:YES];
 
+#if defined(FEAT_NETBEANS_INTG)
+    /* Process any queued netbeans messages. */
+    netbeans_parse_messages();
+#endif
+
     return [[MMBackend sharedInstance] waitForInput:wtime];
 }
 
@@ -1675,14 +1680,14 @@ gui_mch_toggle_tearoffs(int enable)
     void
 gui_mch_enter_fullscreen(int fuoptions_flags, guicolor_T bg)
 {
-    [[MMBackend sharedInstance] enterFullscreen:fuoptions_flags background:bg];
+    [[MMBackend sharedInstance] enterFullScreen:fuoptions_flags background:bg];
 }
 
 
     void
 gui_mch_leave_fullscreen()
 {
-    [[MMBackend sharedInstance] leaveFullscreen];
+    [[MMBackend sharedInstance] leaveFullScreen];
 }
 
 
@@ -1699,7 +1704,7 @@ gui_mch_fuopt_update()
         bg = fuoptions_bgcolor;
     }
 
-    [[MMBackend sharedInstance] setFullscreenBackgroundColor:bg];
+    [[MMBackend sharedInstance] setFullScreenBackgroundColor:bg];
 }
 
 

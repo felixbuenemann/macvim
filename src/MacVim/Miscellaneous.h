@@ -54,6 +54,7 @@ extern NSString *MMUseInlineImKey;
 #endif // INCLUDE_OLD_IM_CODE
 extern NSString *MMSuppressTerminationAlertKey;
 extern NSString *MMDrawerPreferredEdgeKey;
+extern NSString *MMNativeFullScreenKey;
 
 
 // Enum for MMUntitledWindowKey
@@ -91,6 +92,15 @@ enum {
 
 
 
+enum {
+    // These values are chosen so that the min text view size is not too small
+    // with the default font (they only affect resizing with the mouse, you can
+    // still use e.g. ":set lines=2" to go below these values).
+    MMMinRows = 4,
+    MMMinColumns = 30
+};
+
+
 
 @interface NSIndexSet (MMExtras)
 + (id)indexSetWithVimList:(NSString *)list;
@@ -105,7 +115,11 @@ enum {
 
 @interface NSSavePanel (MMExtras)
 - (void)hiddenFilesButtonToggled:(id)sender;
+#if (MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_6)
+// This method is a part of a public API as of Mac OS X 10.6.  Only use this
+// hack for earlier versions of Mac OS X.
 - (void)setShowsHiddenFiles:(BOOL)show;
+#endif
 @end
 
 
