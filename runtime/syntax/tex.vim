@@ -1,8 +1,8 @@
 " Vim syntax file
 " Language:	TeX
 " Maintainer:	Dr. Charles E. Campbell, Jr. <NdrchipO@ScampbellPfamily.AbizM>
-" Last Change:	Aug 22, 2011 
-" Version:	68
+" Last Change:	Jan 10, 2012
+" Version:	72
 " URL:		http://mysite.verizon.net/astronaut/vim/index.html#vimlinks_syntax
 "
 " Notes: {{{1
@@ -37,6 +37,8 @@ if version < 600
 elseif exists("b:current_syntax")
   finish
 endif
+let s:keepcpo= &cpo
+set cpo&vim
 scriptencoding utf-8
 
 " Define the default highlighting. {{{1
@@ -601,6 +603,7 @@ if has("conceal") && &enc == 'utf-8'
   let s:texMathList=[
     \ ['|'		, '‖'],
     \ ['aleph'		, 'ℵ'],
+    \ ['amalg'		, '∐'],
     \ ['angle'		, '∠'],
     \ ['approx'		, '≈'],
     \ ['ast'		, '∗'],
@@ -612,20 +615,24 @@ if has("conceal") && &enc == 'utf-8'
     \ ['because'	, '∵'],
     \ ['between'	, '≬'],
     \ ['bigcap'		, '∩'],
+    \ ['bigcirc'	, '○'],
     \ ['bigcup'		, '∪'],
     \ ['bigodot'	, '⊙'],
     \ ['bigoplus'	, '⊕'],
     \ ['bigotimes'	, '⊗'],
     \ ['bigsqcup'	, '⊔'],
     \ ['bigtriangledown', '∇'],
+    \ ['bigtriangleup'	, '∆'],
     \ ['bigvee'		, '⋁'],
     \ ['bigwedge'	, '⋀'],
     \ ['blacksquare'	, '∎'],
     \ ['bot'		, '⊥'],
+    \ ['bowtie'	        , '⋈'],
     \ ['boxdot'		, '⊡'],
     \ ['boxminus'	, '⊟'],
     \ ['boxplus'	, '⊞'],
     \ ['boxtimes'	, '⊠'],
+    \ ['bullet'	        , '•'],
     \ ['bumpeq'		, '≏'],
     \ ['Bumpeq'		, '≎'],
     \ ['cap'		, '∩'],
@@ -649,36 +656,41 @@ if has("conceal") && &enc == 'utf-8'
     \ ['curlyeqsucc'	, '⋟'],
     \ ['curlyvee'	, '⋎'],
     \ ['curlywedge'	, '⋏'],
+    \ ['dagger'	        , '†'],
     \ ['dashv'		, '⊣'],
+    \ ['ddagger'	, '‡'],
+    \ ['ddots'	        , '⋱'],
     \ ['diamond'	, '⋄'],
     \ ['diamondsuit'	, '♢'],
     \ ['div'		, '÷'],
     \ ['doteq'		, '≐'],
     \ ['doteqdot'	, '≑'],
     \ ['dotplus'	, '∔'],
+    \ ['dots'		, '…'],
     \ ['dotsb'		, '⋯'],
     \ ['dotsc'		, '…'],
-    \ ['dots'		, '…'],
     \ ['dotsi'		, '⋯'],
     \ ['dotso'		, '…'],
     \ ['doublebarwedge'	, '⩞'],
     \ ['downarrow'	, '↓'],
     \ ['Downarrow'	, '⇓'],
+    \ ['ell'		, 'ℓ'],
     \ ['emptyset'	, '∅'],
     \ ['eqcirc'		, '≖'],
     \ ['eqsim'		, '≂'],
     \ ['eqslantgtr'	, '⪖'],
     \ ['eqslantless'	, '⪕'],
     \ ['equiv'		, '≡'],
-    \ ['ell'		, 'ℓ'],
     \ ['exists'		, '∃'],
     \ ['fallingdotseq'	, '≒'],
     \ ['flat'		, '♭'],
     \ ['forall'		, '∀'],
+    \ ['frown'		, '⁔'],
     \ ['ge'		, '≥'],
     \ ['geq'		, '≥'],
     \ ['geqq'		, '≧'],
     \ ['gets'		, '←'],
+    \ ['gg'		, '⟫'],
     \ ['gneqq'		, '≩'],
     \ ['gtrdot'		, '⋗'],
     \ ['gtreqless'	, '⋛'],
@@ -698,33 +710,40 @@ if has("conceal") && &enc == 'utf-8'
     \ ['lceil'		, '⌈'],
     \ ['ldots'		, '…'],
     \ ['le'		, '≤'],
-    \ ['leftarrow'	, '⟵'],
-    \ ['Leftarrow'	, '⟸'],
-    \ ['leftarrowtail'	, '↢'],
+    \ ['leadsto'	, '↝'],
     \ ['left('		, '('],
     \ ['left\['		, '['],
     \ ['left\\{'	, '{'],
+    \ ['leftarrow'	, '⟵'],
+    \ ['Leftarrow'	, '⟸'],
+    \ ['leftarrowtail'	, '↢'],
+    \ ['leftharpoondown', '↽'],
+    \ ['leftharpoonup'	, '↼'],
     \ ['leftrightarrow'	, '⇔'],
+    \ ['Leftrightarrow'	, '⇔'],
     \ ['leftrightsquigarrow', '↭'],
     \ ['leftthreetimes'	, '⋋'],
+    \ ['leq'		, '≤'],
     \ ['leq'		, '≤'],
     \ ['leqq'		, '≦'],
     \ ['lessdot'	, '⋖'],
     \ ['lesseqgtr'	, '⋚'],
     \ ['lesssim'	, '≲'],
     \ ['lfloor'		, '⌊'],
+    \ ['ll'		, '≪'],
     \ ['lmoustache'     , '╭'],
     \ ['lneqq'		, '≨'],
     \ ['ltimes'		, '⋉'],
     \ ['mapsto'		, '↦'],
     \ ['measuredangle'	, '∡'],
     \ ['mid'		, '∣'],
+    \ ['models'		, '╞'],
     \ ['mp'		, '∓'],
     \ ['nabla'		, '∇'],
     \ ['natural'	, '♮'],
     \ ['ncong'		, '≇'],
-    \ ['nearrow'	, '↗'],
     \ ['ne'		, '≠'],
+    \ ['nearrow'	, '↗'],
     \ ['neg'		, '¬'],
     \ ['neq'		, '≠'],
     \ ['nexists'	, '∄'],
@@ -761,12 +780,13 @@ if has("conceal") && &enc == 'utf-8'
     \ ['otimes'		, '⊗'],
     \ ['owns'		, '∋'],
     \ ['P'	        , '¶'],
+    \ ['parallel'	, '║'],
     \ ['partial'	, '∂'],
     \ ['perp'		, '⊥'],
     \ ['pitchfork'	, '⋔'],
     \ ['pm'		, '±'],
-    \ ['precapprox'	, '⪷'],
     \ ['prec'		, '≺'],
+    \ ['precapprox'	, '⪷'],
     \ ['preccurlyeq'	, '≼'],
     \ ['preceq'		, '⪯'],
     \ ['precnapprox'	, '⪹'],
@@ -778,12 +798,13 @@ if has("conceal") && &enc == 'utf-8'
     \ ['rceil'		, '⌉'],
     \ ['Re'		, 'ℜ'],
     \ ['rfloor'		, '⌋'],
-    \ ['rightarrow'	, '⟶'],
-    \ ['Rightarrow'	, '⟹'],
-    \ ['rightarrowtail'	, '↣'],
     \ ['right)'		, ')'],
     \ ['right]'		, ']'],
     \ ['right\\}'	, '}'],
+    \ ['rightarrow'	, '⟶'],
+    \ ['Rightarrow'	, '⟹'],
+    \ ['rightarrowtail'	, '↣'],
+    \ ['rightleftharpoons', '⇌'],
     \ ['rightsquigarrow', '↝'],
     \ ['rightthreetimes', '⋌'],
     \ ['risingdotseq'	, '≓'],
@@ -794,6 +815,8 @@ if has("conceal") && &enc == 'utf-8'
     \ ['setminus'	, '∖'],
     \ ['sharp'		, '♯'],
     \ ['sim'		, '∼'],
+    \ ['simeq'		, '⋍'],
+    \ ['smile'		, '‿'],
     \ ['spadesuit'	, '♠'],
     \ ['sphericalangle'	, '∢'],
     \ ['sqcap'		, '⊓'],
@@ -802,20 +825,22 @@ if has("conceal") && &enc == 'utf-8'
     \ ['sqsubseteq'	, '⊑'],
     \ ['sqsupset'	, '⊐'],
     \ ['sqsupseteq'	, '⊒'],
+    \ ['star'		, '✫'],
     \ ['subset'		, '⊂'],
     \ ['Subset'		, '⋐'],
     \ ['subseteq'	, '⊆'],
     \ ['subseteqq'	, '⫅'],
     \ ['subsetneq'	, '⊊'],
     \ ['subsetneqq'	, '⫋'],
-    \ ['succapprox'	, '⪸'],
     \ ['succ'		, '≻'],
+    \ ['succapprox'	, '⪸'],
     \ ['succcurlyeq'	, '≽'],
     \ ['succeq'		, '⪰'],
     \ ['succnapprox'	, '⪺'],
     \ ['succneqq'	, '⪶'],
     \ ['succsim'	, '≿'],
     \ ['sum'		, '∑'],
+    \ ['supset'		, '⊃'],
     \ ['Supset'		, '⋑'],
     \ ['supseteq'	, '⊇'],
     \ ['supseteqq'	, '⫆'],
@@ -845,12 +870,15 @@ if has("conceal") && &enc == 'utf-8'
     \ ['vDash'		, '⊨'],
     \ ['Vdash'		, '⊩'],
     \ ['vdots'		, '⋮'],
-    \ ['veebar'		, '⊻'],
     \ ['vee'		, '∨'],
+    \ ['veebar'		, '⊻'],
     \ ['Vvdash'		, '⊪'],
     \ ['wedge'		, '∧'],
     \ ['wp'		, '℘'],
     \ ['wr'		, '≀']]
+"    \ ['jmath'		, 'X']
+"    \ ['uminus'	, 'X']
+"    \ ['uplus'		, 'X']
   for texmath in s:texMathList
    if texmath[0] =~ '\w$'
     exe "syn match texMathSymbol '\\\\".texmath[0]."\\>' contained conceal cchar=".texmath[1]
@@ -997,6 +1025,9 @@ if has("conceal") && &enc == 'utf-8'
   call s:SuperSub('texSuperscript','\^','T','ᵀ')
   call s:SuperSub('texSuperscript','\^','U','ᵁ')
   call s:SuperSub('texSuperscript','\^','W','ᵂ')
+  call s:SuperSub('texSuperscript','\^',',','︐')
+  call s:SuperSub('texSuperscript','\^',':','︓')
+  call s:SuperSub('texSuperscript','\^',';','︔')
   call s:SuperSub('texSuperscript','\^','+','⁺')
   call s:SuperSub('texSuperscript','\^','-','⁻')
   call s:SuperSub('texSuperscript','\^','<','˂')
@@ -1021,6 +1052,7 @@ if has("conceal") && &enc == 'utf-8'
   call s:SuperSub('texSubscript','_','i','ᵢ')
   call s:SuperSub('texSubscript','_','o','ₒ')
   call s:SuperSub('texSubscript','_','u','ᵤ')
+  call s:SuperSub('texSubscript','_',',','︐')
   call s:SuperSub('texSubscript','_','+','₊')
   call s:SuperSub('texSubscript','_','-','₋')
   call s:SuperSub('texSubscript','_','/','ˏ')
@@ -1173,6 +1205,8 @@ if did_tex_syntax_inits == 1
    HiLink texGreek		texStatement
    HiLink texSuperscript	texStatement
    HiLink texSubscript		texStatement
+   HiLink texSuperscripts 	texSuperscript
+   HiLink texSubscripts 	texSubscript
    HiLink texMathSymbol		texStatement
    HiLink texMathZoneV		texMath
    HiLink texMathZoneW		texMath
@@ -1217,7 +1251,9 @@ if did_tex_syntax_inits == 1
   delcommand HiLink
 endif
 
-" Current Syntax: {{{1
+" Cleanup: {{{1
 unlet s:extfname
 let   b:current_syntax = "tex"
+let &cpo               = s:keepcpo
+unlet s:keepcpo
 " vim: ts=8 fdm=marker

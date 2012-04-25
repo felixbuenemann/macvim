@@ -4858,12 +4858,10 @@ getargopt(eap)
 #ifdef FEAT_MBYTE
     else if (STRNCMP(arg, "enc", 3) == 0)
     {
-	arg += 3;
-	pp = &eap->force_enc;
-    }
-    else if (STRNCMP(arg, "encoding", 8) == 0)
-    {
-	arg += 8;
+	if (STRNCMP(arg, "encoding", 8) == 0)
+	    arg += 8;
+	else
+	    arg += 3;
 	pp = &eap->force_enc;
     }
     else if (STRNCMP(arg, "bad", 3) == 0)
@@ -4975,7 +4973,7 @@ ex_abclear(eap)
     map_clear(eap->cmd, eap->arg, TRUE, TRUE);
 }
 
-#ifdef FEAT_AUTOCMD
+#if defined(FEAT_AUTOCMD) || defined(PROTO)
     static void
 ex_autocmd(eap)
     exarg_T	*eap;
@@ -5002,8 +5000,12 @@ ex_autocmd(eap)
 ex_doautocmd(eap)
     exarg_T	*eap;
 {
-    (void)do_doautocmd(eap->arg, TRUE);
-    do_modelines(0);
+    char_u	*arg = eap->arg;
+    int		call_do_modelines = check_nomodeline(&arg);
+
+    (void)do_doautocmd(arg, TRUE);
+    if (call_do_modelines)  /* Only when there is no <nomodeline>. */
+	do_modelines(0);
 }
 #endif
 
@@ -5987,7 +5989,14 @@ uc_check_code(code, len, buf, cmd, eap, split_buf, split_len)
 	    result = STRLEN(eap->arg) + 2;
 	    for (p = eap->arg; *p; ++p)
 	    {
-		if (*p == '\\' || *p == '"')
+#ifdef  FEAT_MBYTE
+		if (enc_dbcs != 0 && (*mb_ptr2len)(p) == 2)
+		    /* DBCS can contain \ in a trail byte, skip the
+		     * double-byte character. */
+		    ++p;
+		else
+#endif
+		     if (*p == '\\' || *p == '"')
 		    ++result;
 	    }
 
@@ -5996,7 +6005,14 @@ uc_check_code(code, len, buf, cmd, eap, split_buf, split_len)
 		*buf++ = '"';
 		for (p = eap->arg; *p; ++p)
 		{
-		    if (*p == '\\' || *p == '"')
+#ifdef  FEAT_MBYTE
+		    if (enc_dbcs != 0 && (*mb_ptr2len)(p) == 2)
+			/* DBCS can contain \ in a trail byte, copy the
+			 * double-byte character to avoid escaping. */
+			*buf++ = *p++;
+		    else
+#endif
+			 if (*p == '\\' || *p == '"')
 			*buf++ = '\\';
 		    *buf++ = *p;
 		}
@@ -8225,6 +8241,12 @@ do_sleep(msec)
     {
 	ui_delay(msec - done > 1000L ? 1000L : msec - done, TRUE);
 	ui_breakcheck();
+#ifdef FEAT_NETBEANS_INTG
+	/* Process the netbeans messages that may have been received in the
+	 * call to ui_breakcheck() when the GUI is in use. This may occur when
+	 * running a test case. */
+	netbeans_parse_messages();
+#endif
     }
 }
 
